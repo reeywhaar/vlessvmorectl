@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "rm -rf dist/assets && tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
     "test": "vitest run"
