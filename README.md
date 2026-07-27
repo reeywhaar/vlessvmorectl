@@ -13,6 +13,18 @@ URLs, quotas, expiry and traffic history.
 It holds no VPN state of its own. Every node remains the source of truth for its own
 users; this only asks and tells.
 
+<p align="center">
+  <img src="docs/screenshots/overview.png" alt="Every managed node, with user counts and traffic" width="49%">
+  <img src="docs/screenshots/server.png" alt="One node's users, with the ones needing attention first" width="49%">
+</p>
+<p align="center">
+  <img src="docs/screenshots/user.png" alt="The user drawer: QR code, credentials, quota and traffic history" width="49%">
+  <img src="docs/screenshots/login.png" alt="The sign-in screen" width="49%">
+</p>
+
+Real captures of the panel; only the data is invented. Regenerate them with
+[`docs/screenshots/capture.sh`](docs/screenshots/capture.sh).
+
 ## How it fits together
 
 ```
