@@ -17,13 +17,18 @@ WORKDIR /src/web
 # The lockfile alone first, so `npm ci` is cached until a dependency actually changes.
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
-COPY web/tsconfig.json web/vite.config.ts web/index.html ./
+# Both HTML entries. The panel and the subscriber share page are separate Vite entries —
+# separate bundles, so the operator's pages are not in the module graph a stranger's
+# browser loads — and vite.config.ts names both, so a missing one is a hard
+# "Cannot resolve entry module" rather than a quietly smaller build.
+COPY web/tsconfig.json web/vite.config.ts web/index.html web/access.html ./
 COPY web/public ./public
 COPY web/src ./src
 RUN npm run build
 # Fail here, not in production. A build that emits nothing is otherwise invisible until
-# somebody loads the panel and gets the placeholder page.
-RUN test -s dist/index.html
+# somebody loads the panel and gets the placeholder page — and one that emits only the
+# panel is invisible until somebody opens a share link and gets the panel's shell.
+RUN test -s dist/index.html && test -s dist/access.html
 
 # Gzip the bundle before it is embedded, replacing each original.
 #
