@@ -217,9 +217,9 @@ export function SecretField({ label, value }: { label: string; value: string }) 
 // ---- dialog ----
 
 /**
- * Native <dialog> with showModal(), which brings a focus trap, Escape-to-close, an
- * inert background and ::backdrop for free. That is the whole reason there is no Radix
- * dependency here.
+ * Native <dialog> with showModal(): focus trap, inert background and ::backdrop for
+ * free, which is why there is no Radix dependency here. Escape is the one part the
+ * browser gets wrong for nested dialogs; see onKeyDown.
  */
 export function Dialog({
   open,
@@ -247,11 +247,24 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
-      // A click on the backdrop lands on the dialog element itself, never on its
-      // children, which is what makes this check correct rather than a hack.
+      // target === currentTarget means "this dialog's own event, not a nested one's".
+      onClose={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      // Chromium closes *every* open dialog on one Escape rather than only the topmost,
+      // so dismissing a confirm took the drawer behind it too. Handled at keydown, while
+      // both are still open — by `cancel` the inner has already gone and there is nothing
+      // left to tell them apart. Nested dialogs come later in document order, so the last
+      // open one is the innermost.
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        const open = document.querySelectorAll("dialog[open]");
+        if (open[open.length - 1] === e.currentTarget) onClose();
+      }}
+      // A backdrop click lands on the dialog element itself, never on a child.
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (e.target === e.currentTarget) onClose();
       }}
       className={cx(
         "bg-card text-ink backdrop:bg-black/55",
@@ -274,13 +287,9 @@ export function Dialog({
 }
 
 /**
- * A plain are-you-sure, for actions that are irreversible but not destructive.
- *
- * Deliberately lighter than ConfirmDelete: no typing, one click to proceed. The
- * distinction is whether the operator can recover. Deleting a user cannot be undone at
- * all; rotating a subscription can be put right by sending the new link, so gating it
- * behind a typing exercise would just be friction on an action people reach for during
- * an incident.
+ * A plain are-you-sure. Lighter than ConfirmDelete on purpose: rotating a subscription
+ * is recoverable by sending the new link, so it does not warrant a typing exercise on an
+ * action people reach for mid-incident.
  */
 export function Confirm({
   open,
