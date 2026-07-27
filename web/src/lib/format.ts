@@ -1,4 +1,24 @@
-import type { VlessUser } from "../api/types";
+/**
+ * Structural inputs for the two status classifiers below.
+ *
+ * They take the minimum shape rather than VlessUser because the subscriber's share page
+ * has a different type carrying the same facts, and it must reach the same verdict.
+ * VlessUser satisfies both, so no existing caller changes.
+ *
+ * Duplicating the logic instead would eventually let the panel and the share page
+ * disagree about who is over quota, and nobody would notice for months.
+ */
+export interface UserStateInput {
+  enabled: boolean;
+  disabled_reason?: "quota" | "expired";
+  expires_at?: string;
+}
+
+export interface QuotaStateInput {
+  /** 0 means unlimited. */
+  quota_bytes: number;
+  usage?: { window_total: number };
+}
 
 /**
  * Bytes, in the binary units every VPN client displays.
@@ -106,7 +126,7 @@ export type UserState =
  * did, and only `disabled_reason` tells them apart. A user can also be enabled but
  * expire tomorrow, which is not a problem yet but is the thing worth showing.
  */
-export function userState(u: VlessUser, now = Date.now()): UserState {
+export function userState(u: UserStateInput, now = Date.now()): UserState {
   if (!u.enabled) {
     if (u.disabled_reason === "quota") return { kind: "quota", label: "Over quota" };
     if (u.disabled_reason === "expired") return { kind: "expired", label: "Expired" };
@@ -138,7 +158,7 @@ export interface QuotaState {
  * as "nothing left" to anything that does not know the convention. This is that
  * knowledge, in one function.
  */
-export function quotaState(u: VlessUser): QuotaState {
+export function quotaState(u: QuotaStateInput): QuotaState {
   const used = u.usage?.window_total ?? 0;
   const limit = u.quota_bytes;
   if (limit <= 0) {

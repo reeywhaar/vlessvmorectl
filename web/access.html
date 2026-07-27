@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="color-scheme" content="dark light" />
+    <!--
+      A share link is a capability. Keeping it out of a search index matters more here
+      than it does for the panel: the panel is merely private, whereas one of these URLs
+      in a crawler's hands is a working VPN credential.
+    -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Your VPN access</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      A second entry, not a route of the panel. Everything this page can reach is what
+      src/access.tsx imports; the operator's pages are in another bundle entirely. See
+      vite.config.ts.
+    -->
+    <script type="module" src="/src/access.tsx"></script>
+  </body>
+</html>

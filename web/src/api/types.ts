@@ -17,6 +17,61 @@ export interface Session {
   expires_at: string;
 }
 
+// ---- panel-owned: subscribers ----
+
+/**
+ * A person who holds VPN accounts, possibly on several nodes.
+ *
+ * The panel's own concept — no vlessvmore node knows one exists. An entry is a pair of
+ * ids resolved at read time, which is what lets an operator attach an account on a node
+ * that is currently down, and what makes a dangling reference a render-time condition
+ * rather than a corrupt record.
+ */
+export interface Subscriber {
+  id: string;
+  name: string;
+  note?: string;
+
+  /** The share capability, minted once at creation and never rotated. */
+  token: string;
+  /**
+   * Relative, e.g. "/access/QK7M…", and joined against window.location.origin by
+   * whatever displays it.
+   *
+   * The backend refuses to build an absolute URL because Host and X-Forwarded-Host are
+   * both client-supplied; the browser is the only party that reliably knows this panel's
+   * public origin.
+   */
+  access_path: string;
+
+  /** With no rotation, this is the revocation switch. Reversible, and disconnects nobody. */
+  disabled: boolean;
+  entries: SubscriberEntry[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubscriberEntry {
+  id: string;
+  server_id: string;
+  vless_user_id: string;
+  /** The operator's own word for this account: "phone", "the laptop". */
+  label?: string;
+  added_at: string;
+  /**
+   * Whether server_id is still in VLESSVMORE_SERVERS. Computed by the backend on every
+   * read, never stored — an orphan is what an operator gets after changing a node's URL,
+   * since the id is derived from its origin.
+   */
+  server_configured: boolean;
+}
+
+/** POST …/entries returns the updated subscriber, plus a note when it could not verify. */
+export interface AttachResult {
+  subscriber: Subscriber;
+  warning?: string;
+}
+
 // ---- vlessvmore ----
 
 export interface VlessUser {

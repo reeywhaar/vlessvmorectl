@@ -265,23 +265,66 @@ function selectNearbyValue(value: string) {
 }
 
 /**
+ * An anchor wearing Button's clothes.
+ *
+ * A real <a>, not a button with an onClick, because the share page's primary action opens
+ * a node's install page and every one of long-press, middle-click, "open in new tab" and
+ * "copy link address" has to work there. Those are the affordances somebody reaches for
+ * when they are trying to move a link between two devices, which is the entire situation.
+ */
+export function ButtonLink({
+  variant = "secondary",
+  className,
+  ...rest
+}: React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: ButtonVariant }) {
+  return (
+    <a
+      {...rest}
+      className={cx(
+        "inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium",
+        "transition-opacity",
+        buttonStyles[variant],
+        className,
+      )}
+    />
+  );
+}
+
+/**
  * A credential the operator may need to read, hidden until they ask.
  *
  * Subscription and install URLs are capabilities: anyone holding one can connect as
  * that user. Not something to leave on screen during a screen-share.
+ *
+ * `masked` defaults to true, so every existing call site keeps the blur. The public share
+ * page passes false, and the reason is that the blur's threat model does not apply there:
+ * it exists for an operator's screen-share, and somebody looking at their own credential
+ * on their own phone is not a threat. Making them tap "Reveal" before they can copy their
+ * own link would be friction bought for nothing.
  */
-export function SecretField({ label, value }: { label: string; value: string }) {
-  const [shown, setShown] = useState(false);
+export function SecretField({
+  label,
+  value,
+  masked = true,
+}: {
+  label: string;
+  value: string;
+  masked?: boolean;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const shown = !masked || revealed;
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-sm font-medium">{label}</span>
-        <button
-          className="text-xs text-muted underline underline-offset-2 hover:text-ink"
-          onClick={() => setShown((s) => !s)}
-        >
-          {shown ? "Hide" : "Reveal"}
-        </button>
+        {masked ? (
+          <button
+            className="text-xs text-muted underline underline-offset-2 hover:text-ink"
+            onClick={() => setRevealed((s) => !s)}
+          >
+            {revealed ? "Hide" : "Reveal"}
+          </button>
+        ) : null}
       </div>
       <div className="flex items-center gap-2">
         <code

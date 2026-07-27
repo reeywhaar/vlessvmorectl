@@ -15,6 +15,15 @@ export const qk = {
   session: ["session"] as const,
   servers: ["servers"] as const,
 
+  /**
+   * The panel's own subscriber store, under its own root.
+   *
+   * Not nested under ["server", …]: a subscriber belongs to no node, and hanging it off
+   * one would make a node-scoped invalidation throw away data that node never supplied.
+   */
+  subscribers: ["subscribers"] as const,
+  subscriber: (id: string) => ["subscribers", id] as const,
+
   server: (s: string) => ["server", s] as const,
   serverInfo: (s: string) => ["server", s, "info"] as const,
   serverStatus: (s: string) => ["server", s, "status"] as const,

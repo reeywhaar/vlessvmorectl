@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { CopyButton } from "./ui";
+import { CopyButton, SecretField } from "./ui";
 
 /**
  * fireEvent rather than userEvent throughout this file, deliberately.
@@ -62,5 +62,21 @@ describe("CopyButton", () => {
     fireEvent.click(screen.getByRole("button"));
 
     expect(await screen.findByText("Select it")).toBeTruthy();
+  });
+});
+
+describe("SecretField", () => {
+  it("blurs by default, for an operator's screen-share", () => {
+    render(<SecretField label="Share link" value="https://panel/access/ABC" />);
+    expect(screen.getByRole("button", { name: "Reveal" })).toBeTruthy();
+  });
+
+  it("shows the value outright when masking is off", () => {
+    // The share page. Somebody looking at their own credential on their own screen is not
+    // the threat model the blur exists for, and making them tap Reveal to copy their own
+    // link is friction bought for nothing.
+    render(<SecretField label="Subscription link" value="https://n/sub/ABC" masked={false} />);
+    expect(screen.queryByRole("button", { name: "Reveal" })).toBeNull();
+    expect(screen.getByText("https://n/sub/ABC")).toBeTruthy();
   });
 });

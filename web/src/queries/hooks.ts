@@ -1,11 +1,22 @@
 import {
   useMutation,
+  useQueries,
   useQueryClient,
-  useSuspenseQueries,
   useSuspenseQuery,
   type QueryClient,
 } from "@tanstack/react-query";
 import { useApiCall, type ApiCall } from "../api/ApiProvider";
+import { isVlessError, type VlessFailure } from "../api/errors";
+import {
+  deleteSubscribersById,
+  deleteSubscribersByIdEntriesByEntryId,
+  getSubscribers,
+  patchSubscribersById,
+  patchSubscribersByIdEntriesByEntryId,
+  postSubscribers,
+  postSubscribersByIdEntries,
+} from "../api/actions/subscribers";
+import type { Subscriber } from "../api/types";
 import { getMe, postLogin, postLogout } from "../api/actions/auth";
 import { getServers } from "../api/actions/servers";
 import { getServer } from "../api/actions/server";
@@ -96,16 +107,50 @@ export function useUsers(server: Server) {
   });
 }
 
-/** Fan-out across nodes. useSuspenseQueries keeps the hook count stable as the list
- *  changes, and each card reads only its own slot. */
-export function useAllUsers(servers: Server[]) {
+/** One node's slot in the tolerant fan-out below. */
+export interface NodeUsers {
+  server: Server;
+  /** null while loading, and null when this node did not answer. */
+  users: VlessUser[] | null;
+  failure: VlessFailure | null;
+}
+
+/**
+ * Every node's user list, tolerant of any of them failing.
+ *
+ * There used to be a useAllUsers here built on useSuspenseQueries. It was removed rather
+ * than kept alongside this, because a suspense query always throws, and the shorter name
+ * was a trap: one node with a rejected token would blank an entire page whose own data
+ * came from this panel and was perfectly fine.
+ *
+ * That is exactly the subscriber screens' situation. The node data here is *enrichment* —
+ * an account's name and a status badge next to a reference the panel already holds — so a
+ * failure has to degrade one group of rows and say so, not take the page with it.
+ *
+ * Shares qk.users(serverId) with useUsers, so arriving from the overview costs nothing:
+ * the ten-second poll has already warmed exactly these entries.
+ */
+export function useUsersByServer(servers: Server[]): NodeUsers[] {
   const callApi = useApiCall();
-  return useSuspenseQueries({
+  const results = useQueries({
     queries: servers.map((s) => ({
       queryKey: qk.users(s.id),
       queryFn: ({ signal }: { signal: AbortSignal }) => callApi(getUsers(s), signal),
       refetchInterval: pollWithBackoff(),
+      // The whole point. Without this the error propagates to the nearest boundary and
+      // the tolerance above is a comment rather than a behaviour.
+      throwOnError: false,
     })),
+  });
+
+  return servers.map((server, i) => {
+    const r = results[i];
+    const error = r?.error;
+    return {
+      server,
+      users: r?.data ?? null,
+      failure: isVlessError(error) ? error.failure : null,
+    };
   });
 }
 
@@ -301,6 +346,103 @@ export function useLogout() {
     mutationFn: () => callApi(postLogout()),
     onSuccess: () => qc.clear(),
   });
+}
+
+// ---- panel-owned: subscribers ----
+
+/**
+ * Not polled, unlike everything node-shaped above.
+ *
+ * These are rows in this panel's own store. They change only when an operator changes
+ * them, and every mutation below invalidates them, so a ten-second poll would be this
+ * process asking itself the same question 8,640 times a day.
+ *
+ * The list carries share tokens, so it inherits the cache hygiene the rest of the
+ * credential-bearing queries use: it goes out of memory shortly after nothing is
+ * observing it, and logging out clears it outright via qc.clear().
+ */
+export function useSubscribers() {
+  const callApi = useApiCall();
+  return useSuspenseQuery({
+    queryKey: qk.subscribers,
+    queryFn: ({ signal }) => callApi(getSubscribers(), signal),
+    staleTime: 30_000,
+    gcTime: 60_000,
+  });
+}
+
+/**
+ * Shared by every mutation below.
+ *
+ * Invalidating the ["subscribers"] root rather than one record: these are cheap, local
+ * reads, and a mutation that changes one subscriber can change the list's ordering too.
+ */
+function useSubscriberMutation<TVars>(run: (callApi: ApiCall, vars: TVars) => Promise<unknown>) {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: TVars) => run(callApi, vars),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.subscribers }),
+  });
+}
+
+/** No optimism: the backend assigns the id and mints the token. */
+export function useCreateSubscriber() {
+  return useSubscriberMutation<{ name: string; note: string }>((callApi, input) =>
+    callApi(postSubscribers(input)),
+  );
+}
+
+export function usePatchSubscriber() {
+  const qc = useQueryClient();
+  const callApi = useApiCall();
+  return useMutation({
+    mutationFn: (vars: { id: string; patch: { name?: string; note?: string; disabled?: boolean } }) =>
+      callApi(patchSubscribersById(vars.id, vars.patch)),
+    // Optimistic, because the two things it drives — a rename and the disabled toggle —
+    // are both switches an operator expects to move under their finger. Rolled back on
+    // failure, and reconciled by the invalidate in onSettled either way.
+    onMutate: async ({ id, patch }) => {
+      await qc.cancelQueries({ queryKey: qk.subscribers });
+      const before = qc.getQueryData<Subscriber[]>(qk.subscribers);
+      if (before) {
+        qc.setQueryData<Subscriber[]>(
+          qk.subscribers,
+          before.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+        );
+      }
+      return { before };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.before) qc.setQueryData(qk.subscribers, ctx.before);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.subscribers }),
+  });
+}
+
+export function useDeleteSubscriber() {
+  return useSubscriberMutation<string>((callApi, id) => callApi(deleteSubscribersById(id)));
+}
+
+/** No optimism: the backend assigns the entry id, and may answer with a warning. */
+export function useAttachEntry() {
+  return useSubscriberMutation<{
+    id: string;
+    entry: { server_id: string; vless_user_id: string; label: string };
+  }>((callApi, { id, entry }) => callApi(postSubscribersByIdEntries(id, entry)));
+}
+
+export function useRelabelEntry() {
+  return useSubscriberMutation<{ id: string; entryId: string; label: string }>(
+    (callApi, { id, entryId, label }) =>
+      callApi(patchSubscribersByIdEntriesByEntryId(id, entryId, label)),
+  );
+}
+
+export function useDetachEntry() {
+  return useSubscriberMutation<{ id: string; entryId: string }>((callApi, { id, entryId }) =>
+    callApi(deleteSubscribersByIdEntriesByEntryId(id, entryId)),
+  );
 }
 
 export { POLL_MS, UserPatch };

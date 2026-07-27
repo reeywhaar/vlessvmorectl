@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo, useState, useTransition } from "react";
 import { Boundary } from "../../components/Boundary";
 import { ErrorState } from "../../components/ErrorState";
 import { QrMatrix } from "../../components/QrMatrix";
+import { UserSubscribersSection } from "./UserSubscribersSection";
 import {
   Badge,
   Button,
@@ -125,6 +126,10 @@ function DrawerBody({
       </div>
 
       <Details server={server} user={user} />
+
+      {/* After Details, before Credentials: "who is this for" belongs next to the name
+          and note, not next to the QR code. */}
+      <UserSubscribersSection server={server} user={user} />
 
       <Credentials
         server={server}

@@ -6,10 +6,22 @@ import { Button, Skeleton, cx } from "./components/ui";
 import { LoginPage } from "./routes/LoginPage";
 import { OverviewPage } from "./routes/OverviewPage";
 import { ServerPage } from "./routes/ServerPage";
+import { SubscribersPage } from "./routes/SubscribersPage";
 import { useLogout, useSession } from "./queries/hooks";
 import { isVlessError } from "./api/errors";
 import { useTheme } from "./lib/theme";
 
+/**
+ * The operator's panel. Every route below requires a session.
+ *
+ * The subscriber's share page is deliberately *not* here. It is a second Vite entry —
+ * access.html, src/access.tsx — with its own React root and its own bundle, so none of
+ * this file's subtree is served to somebody holding a share link. See vite.config.ts for
+ * why that is a separate build rather than a lazy route.
+ *
+ * The practical consequence for this file: it does not need a public branch above the
+ * auth boundary, and the boundary can stay exactly where it has always been.
+ */
 export function App() {
   /**
    * Bumped whenever the signed-in identity changes, and used as the Boundary's `key`.
@@ -59,6 +71,7 @@ function Authenticated({ onSignedOut }: { onSignedOut: () => void }) {
       <Routes>
         <Route path="/" element={<OverviewPage />} />
         <Route path="/servers/:serverId" element={<ServerPage />} />
+        <Route path="/subscribers" element={<SubscribersPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
@@ -78,6 +91,13 @@ function Shell({
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
 
+  // The overview is at "/" and its detail pages are at "/servers/:id", so this tab is lit
+  // by two unrelated paths. NavLink's `end` matches only the first and its default
+  // matches everything including /subscribers; an explicit predicate is shorter than
+  // either workaround and does not mislead a reader into thinking one route is involved.
+  const onServers = pathname === "/" || pathname.startsWith("/servers");
+  const onSubscribers = pathname.startsWith("/subscribers");
+
   return (
     <div className="min-h-full">
       <header className="border-b border-line bg-card">
@@ -87,12 +107,18 @@ function Shell({
             <span className="font-semibold">vlessvmore</span>
           </Link>
 
-          <nav className="ml-4 text-sm">
+          <nav className="ml-4 flex gap-1 text-sm">
             <Link
               to="/"
-              className={cx("rounded-lg px-2 py-1", pathname === "/" ? "bg-line" : "text-muted hover:text-ink")}
+              className={cx("rounded-lg px-2 py-1", onServers ? "bg-line" : "text-muted hover:text-ink")}
             >
               Servers
+            </Link>
+            <Link
+              to="/subscribers"
+              className={cx("rounded-lg px-2 py-1", onSubscribers ? "bg-line" : "text-muted hover:text-ink")}
+            >
+              Subscribers
             </Link>
           </nav>
 
