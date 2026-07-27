@@ -157,27 +157,82 @@ export function EmptyState({ title, children }: { title: ReactNode; children?: R
 
 // ---- copy ----
 
+/**
+ * Copy to the clipboard, or say so when the browser will not let us.
+ *
+ * The guard around navigator.clipboard is load-bearing, not defensive habit. That API is
+ * undefined outside a secure context — plain HTTP on anything but localhost — and an
+ * error thrown in a React event handler is *not* caught by an error boundary. Unguarded,
+ * the whole failure presents as a button labelled "Copy" that does nothing, for ever,
+ * with only a console message to explain it.
+ *
+ * In the panel that is an annoyance. On the public share page it lands on people reaching
+ * a plain-HTTP deployment from whatever browser their phone came with, and copying the
+ * link is the only thing they came to do — so the fallback selects the text instead and
+ * tells them to copy it themselves.
+ */
 export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "unavailable">("idle");
 
   useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
+    if (state === "idle") return;
+    const t = setTimeout(() => setState("idle"), 2500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [state]);
+
+  const copy = () => {
+    if (!navigator.clipboard?.writeText) {
+      setState("unavailable");
+      selectNearbyValue(value);
+      return;
+    }
+    navigator.clipboard.writeText(value).then(
+      () => setState("copied"),
+      // A rejection here is a permissions policy or a document that was not focused.
+      // Same remedy as having no API at all.
+      () => {
+        setState("unavailable");
+        selectNearbyValue(value);
+      },
+    );
+  };
 
   return (
     <Button
       variant="secondary"
-      onClick={() => {
-        void navigator.clipboard.writeText(value).then(() => setCopied(true));
-      }}
+      onClick={copy}
       // Announced rather than only shown, since the visual change is subtle.
       aria-live="polite"
     >
-      {copied ? "Copied" : label}
+      {state === "copied" ? "Copied" : state === "unavailable" ? "Select it" : label}
     </Button>
   );
+}
+
+/**
+ * Selects the on-screen text so the reader can copy it by hand.
+ *
+ * Finds the element by its content rather than by a ref, because CopyButton is used
+ * standalone as well as inside SecretField and has no reliable handle on the node showing
+ * the value. Best-effort by design: if it finds nothing, the button has still changed its
+ * label to say the automatic path did not work.
+ */
+function selectNearbyValue(value: string) {
+  if (typeof document === "undefined") return;
+  for (const el of document.querySelectorAll("code, input")) {
+    const text = el instanceof HTMLInputElement ? el.value : el.textContent;
+    if (text !== value) continue;
+    if (el instanceof HTMLInputElement) {
+      el.select();
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    return;
+  }
 }
 
 /**
