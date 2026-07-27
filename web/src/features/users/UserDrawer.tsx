@@ -7,6 +7,8 @@ import {
   Button,
   ConfirmDelete,
   Dialog,
+  Field,
+  Input,
   SecretField,
   Skeleton,
   StatTile,
@@ -23,7 +25,7 @@ import {
 } from "../../queries/hooks";
 import { Tri } from "../../api/patch";
 import { PRESETS, snapRange, type Preset, type SnappedRange } from "../../lib/range";
-import { formatBytes, formatDateTime, quotaState, userState } from "../../lib/format";
+import { formatBytes, formatDateTime, parseBytes, quotaState, userState } from "../../lib/format";
 import { zeroFill } from "../usage/series";
 import type { Server, VlessUser } from "../../api/types";
 
@@ -55,7 +57,9 @@ export function UserDrawer({
           <ErrorState error={error} retry={retry} failure={failure} />
         )}
       >
-        <DrawerBody server={server} user={user} onClose={onClose} />
+        {/* Keyed so switching users resets the edit form, the QR toggle and the range
+            picker. Without it those keep the previous user's state. */}
+        <DrawerBody key={user.id} server={server} user={user} onClose={onClose} />
       </Boundary>
     </Dialog>
   );
@@ -119,6 +123,8 @@ function DrawerBody({
         <StatTile label="Expires" value={user.expires_at ? formatDateTime(user.expires_at) : "Never"} />
       </div>
 
+      <Details server={server} user={user} />
+
       <Credentials server={server} user={user} onRotate={() => rotate.mutate(user.id)} rotating={rotate.isPending} />
 
       <Usage server={server} user={user} />
@@ -144,6 +150,118 @@ function DrawerBody({
         }
       />
     </div>
+  );
+}
+
+/**
+ * Name, note and quota, all editable after the fact.
+ *
+ * Renaming is safe: vlessvmore keys usage on the internal id and only ever tells sing-box
+ * that id, so history survives — which is worth saying on screen, because renaming a VPN
+ * user otherwise feels like the kind of thing that would lose their traffic totals.
+ *
+ * The UUID is deliberately not editable here. Changing it invalidates the user's existing
+ * client configuration, which is a disconnect-everyone action and does not belong behind
+ * the same Save button as fixing a typo in a note.
+ */
+function Details({ server, user }: { server: Server; user: VlessUser }) {
+  const patch = usePatchUser(server);
+
+  const initialQuota = user.quota_bytes > 0 ? formatBytes(user.quota_bytes, 0) : "";
+  const [name, setName] = useState(user.name);
+  const [note, setNote] = useState(user.note ?? "");
+  const [quota, setQuota] = useState(initialQuota);
+
+  const quotaBytes = parseBytes(quota);
+  const quotaInvalid = quotaBytes === null;
+
+  const trimmedName = name.trim();
+  const trimmedNote = note.trim();
+  const nameChanged = trimmedName !== user.name;
+  const noteChanged = trimmedNote !== (user.note ?? "");
+  const quotaChanged = !quotaInvalid && quotaBytes !== user.quota_bytes;
+  const dirty = nameChanged || noteChanged || quotaChanged;
+
+  function save() {
+    // Only what actually moved. Sending the whole form every time would work, but an
+    // unchanged `name` still counts as a change to the node, and every patch triggers a
+    // reload — which drops every established connection on that server.
+    patch.mutate({
+      id: user.id,
+      patch: new UserPatch({
+        ...(nameChanged ? { name: trimmedName } : {}),
+        ...(noteChanged ? { note: trimmedNote } : {}),
+        ...(quotaChanged ? { quotaBytes: quotaBytes! } : {}),
+      }),
+    });
+  }
+
+  return (
+    <section>
+      <h3 className="mb-3 font-semibold">Details</h3>
+      <div className="space-y-3">
+        <Field
+          label="Name"
+          hint={
+            nameChanged
+              ? "Traffic history follows the user, not the name, so renaming keeps it."
+              : undefined
+          }
+        >
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+
+        <Field label="Note" hint="Only you see this.">
+          <Input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="phone, laptop, who it is for…"
+          />
+        </Field>
+
+        <Field label="Quota" hint="e.g. 100GB. Empty for unlimited.">
+          <Input
+            value={quota}
+            onChange={(e) => setQuota(e.target.value)}
+            placeholder="Unlimited"
+            aria-invalid={quotaInvalid}
+          />
+        </Field>
+
+        {quotaInvalid ? (
+          <p className="text-xs text-danger">
+            Not a size. Write something like <code>100GB</code> or <code>500 MB</code>.
+          </p>
+        ) : null}
+
+        {patch.error ? (
+          <p role="alert" className="text-sm text-danger">
+            {patch.error instanceof Error ? patch.error.message : String(patch.error)}
+          </p>
+        ) : null}
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            disabled={!dirty || quotaInvalid || !trimmedName || patch.isPending}
+            onClick={save}
+          >
+            {patch.isPending ? "Saving…" : "Save"}
+          </Button>
+          {dirty ? (
+            <Button
+              onClick={() => {
+                setName(user.name);
+                setNote(user.note ?? "");
+                setQuota(initialQuota);
+              }}
+            >
+              Reset
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }
 
