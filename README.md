@@ -10,6 +10,11 @@ across all of them. This is that missing piece: a login, an overview of every no
 the user management you would otherwise do at a shell — links, QR codes, subscription
 URLs, quotas, expiry and traffic history.
 
+It also answers the other half of that problem: **giving a person one link.** Group the
+accounts somebody holds — on any number of nodes — under a *subscriber*, and they get a
+single URL showing all of them, with QR codes, subscription links and how much data they
+have left. No login, and no panel: it is a separate page with its own bundle.
+
 It holds no VPN state of its own. Every node remains the source of truth for its own
 users; this only asks and tells.
 
@@ -21,6 +26,10 @@ users; this only asks and tells.
   <img src="docs/screenshots/user.png" alt="The user drawer: QR code, credentials, quota and traffic history" width="49%">
   <img src="docs/screenshots/login.png" alt="The sign-in screen" width="49%">
 </p>
+<p align="center">
+  <img src="docs/screenshots/subscribers.png" alt="Subscribers: the people this panel hands accounts to" width="49%">
+  <img src="docs/screenshots/access.png" alt="A subscriber's own page: every account they hold, with QR codes and remaining data" width="49%">
+</p>
 
 Real captures of the panel; only the data is invented. Regenerate them with
 [`docs/screenshots/capture.sh`](docs/screenshots/capture.sh).
@@ -29,12 +38,17 @@ Real captures of the panel; only the data is invented. Regenerate them with
 
 ```
                     ┌──────────────────────────────────────────┐
-  browser  ────────▶│ vlessvmorectl  :80                       │
+  operator ────────▶│ vlessvmorectl  :80                       │
        cookie       │  POST /api/login                         │
    vlessvmore_auth  │  GET  /api/me                            │
                     │  GET  /api/servers  → [{id, url}]        │  ← no tokens
                     │  ANY  /api/proxy?url=…                   │
-                    │  the React app                           │
+                    │  ANY  /api/subscribers…                  │
+                    │  the panel bundle                        │
+                    │                                          │
+  subscriber ──────▶│  GET  /access/{token}                    │  ← no session
+       no cookie    │  GET  /api/access/{token}                │
+                    │  a separate bundle                       │
                     └───────────────┬──────────────────────────┘
                                     │  Authorization: Bearer <token>
                                     ├──▶ https://vpn-nl.example.com/api/*
@@ -94,8 +108,9 @@ services:
     env_file: .env
 
     volumes:
-      # admins.json. Without this mount every administrator disappears when the
-      # container is replaced, and the only way back in is a shell on this host.
+      # admins.json, sessions.json and subscribers.json. Without this mount every
+      # administrator disappears when the container is replaced — and the only way back
+      # in is a shell on this host — and every share link stops working.
       - ./data:/var/lib/vlessvmorectl
 
     healthcheck:
@@ -179,8 +194,46 @@ panel with no restart, and `users passwd` signs that person out **everywhere,
 immediately** — which is the entire point of changing a password after a suspected
 compromise.
 
+`sessions.json` and `subscribers.json` are the mirror image: written only by the running
+panel, never by the CLI. Each file having exactly one writer is what lets two processes
+share a data directory without a lock or a socket protocol, and the CLI's handle on
+`subscribers.json` is read-only in code rather than by convention.
+
 `users rm` refuses to remove the last administrator without `--force`, since that locks
 everyone out of a running panel.
+
+## Subscribers, and the page you hand them
+
+A **subscriber** is a person, not an account. Create one, attach the VPN accounts they hold
+— on any number of nodes — and copy their share link. Opening it needs no login and shows,
+for each account: which server, whether it is working, how much data is left, when it
+expires, the `vless://` link, the subscription URL and QR codes for both.
+
+This is the one thing the panel owns that a node does not. An attachment is a *reference*
+— a node id and an account id — never a copy: nothing is snapshotted, so a subscriber
+record cannot go stale, and an account deleted on a node simply shows as gone. It lives in
+`subscribers.json` next to `admins.json`, written only by the running panel.
+
+**The share page is a separate bundle**, built from its own Vite entry, with its own React
+root and no router, no query client and no API dispatcher. That is a boundary rather than
+an optimisation: the operator's pages are not in the module graph a subscriber's browser
+loads, so keeping them out does not depend on nobody ever writing the wrong import. It does
+not make the panel bundle unreachable — static files on a public origin can be fetched by
+anyone who knows the name — but it decides what a stranger is *served*.
+
+Three things worth knowing before you hand a link out:
+
+- **The link is a capability, and it is minted once.** There is no rotate. Anyone holding it
+  sees every account attached to that subscriber. If one leaks, switch the subscriber off —
+  instant, reversible, and it disconnects nobody — or delete them and start again.
+- **Switching a subscriber off does not disconnect anyone.** It stops the page answering.
+  The accounts themselves keep working, because they live on the node and know nothing about
+  this. The two revocations are independent: rotating a node's subscription token changes
+  what the page *shows*, and does not invalidate the share link.
+- **The token is in the URL, so it will appear in your reverse proxy's access log.** That is
+  the standing cost of capability URLs — vlessvmore's own `/sub/` and `/show/` URLs have it
+  too. This service keeps it out of its own logs, replacing it with a fingerprint you can
+  derive from the token you hold.
 
 ## Things worth knowing
 
@@ -210,6 +263,8 @@ looks like it ends in an outage.
 **Subscription and install URLs are capabilities.** Anyone holding one can connect as that
 user. They are blurred until revealed, never logged, and rotating a subscription token
 invalidates the old URL immediately without disconnecting anyone — the UUID is untouched.
+A subscriber's share link is a capability of the same class; see
+[Subscribers](#subscribers-and-the-page-you-hand-them).
 
 **Sessions survive a restart**, so `docker compose restart` does not sign everyone out.
 They live in `sessions.json` in the data directory, and what is stored is a *hash* of each
@@ -243,12 +298,35 @@ around it:
 - Errors and logs route through a redaction helper. There are tests asserting that no
   response body and no log line ever contains a token.
 
+`GET /api/access/{token}` is the other endpoint that makes credentialed calls to a node,
+and the only one a stranger can reach. It is not a second `/api/proxy`, because **the
+caller contributes zero bytes to any outbound URL**: the scheme, host, path and query are
+built entirely from configuration and from what an authenticated operator put in
+`subscribers.json`. The token selects a record; it cannot reach the wire. Also:
+
+- An unknown token is answered from memory and contacts no node at all, so somebody without
+  a working link cannot make this panel generate upstream traffic. There is a test asserting
+  the upstream hit count is zero.
+- The response is a projection with no field for a node URL, an account uuid, a `sub_token`,
+  the operator's note, or any other subscriber. A leak would take somebody adding a field on
+  purpose.
+- Malformed, unknown and switched-off tokens produce one byte-identical 404.
+- Per-token and global rate limits, with buckets created only for tokens that resolve —
+  otherwise the limiter is an unbounded map keyed by attacker input.
+- The token never reaches a log line: `logRequests` replaces it with a fingerprint.
+
 Elsewhere: bcrypt at cost 12, a login rate limit per username plus a global cap (a slow
 hash on an unauthenticated endpoint is a CPU amplifier), `SameSite=Lax` plus a
-JSON-only-bodies rule and a `Sec-Fetch-Site` check for CSRF, and **no CORS middleware at
-all** — its absence is load-bearing, and there is a test that fails if one appears.
+JSON-only-bodies rule and a `Sec-Fetch-Site` check for CSRF, `Referrer-Policy: no-referrer`
+(load-bearing for share links, which carry a credential in the path), and **no CORS
+middleware at all** — its absence is load-bearing, and there is a test that fails if one
+appears.
 
-`admins.json` holds only bcrypt hashes, at mode 600.
+`admins.json` holds only bcrypt hashes, at mode 600. `subscribers.json` holds share tokens
+in the clear, also at 600, because an operator has to be able to re-read a link to send it
+again — a hash cannot do that. It is not an escalation: everything a share token unlocks is
+a set of node subscription URLs that are themselves capability URLs already sitting in that
+person's VPN client.
 
 ## Development
 

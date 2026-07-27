@@ -9,6 +9,7 @@
 //   OUT             directory to write PNGs into     (default .)
 //   WIDTH           CSS width to render at           (default 600)
 //   THEME           dark | light                     (default dark)
+//   SHARE_TOKEN     a subscriber's token, for the signed-out share page (optional)
 import { writeFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 
@@ -17,6 +18,9 @@ const OUT = process.env.OUT ?? ".";
 const COOKIE = process.env.SESSION_COOKIE;
 const WIDTH = Number(process.env.WIDTH ?? 600);
 const THEME = process.env.THEME ?? "dark";
+/** A subscriber's share token, for the signed-out page. Optional; the shot is skipped
+ *  without one, so this script still runs against a panel with no subscribers. */
+const SHARE_TOKEN = process.env.SHARE_TOKEN ?? "";
 
 if (!COOKIE) throw new Error("SESSION_COOKIE is required");
 
@@ -238,6 +242,29 @@ await waitFor("dialog svg[role='img']");
 await sleep(1600); // the usage chart is a lazily loaded chunk
 await fitDialogHeight();
 await shot("user");
+
+// --- 5. the people a panel hands accounts to ---
+await navigate("/subscribers");
+await waitFor("main table tbody tr");
+await sleep(1000);
+await fitHeight();
+await shot("subscribers");
+
+// --- 6. the share page, signed out ---
+//
+// The cookie is cleared first, and that is the point of the shot rather than a detail of
+// it: this page is a separate bundle with no session, and capturing it while signed in
+// would prove nothing about whether it works for the person it is meant for.
+if (SHARE_TOKEN) {
+  await send("Network.clearBrowserCookies");
+  await navigate(`/access/${SHARE_TOKEN}`);
+  await waitFor("main svg[role='img']");
+  await sleep(1000);
+  await fitHeight();
+  await shot("access");
+} else {
+  console.log("  skipping access.png: no SHARE_TOKEN");
+}
 
 ws.close();
 console.log("done");

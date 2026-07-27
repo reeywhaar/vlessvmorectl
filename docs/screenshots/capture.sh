@@ -103,6 +103,33 @@ curl -fsS -c "$work/ck" -X POST "$PANEL_URL/api/login" \
 cookie=$(awk '/vlessvmore_auth/ {print $7}' "$work/ck")
 [ -n "$cookie" ] || { echo "could not sign in"; cat "$work/panel.log"; exit 1; }
 
+# Seed a subscriber through the panel's own API rather than by writing subscribers.json.
+#
+# Two reasons. The daemon is the only writer of that file and refuses to save over an
+# outside edit, so a hand-written seed would make the first UI change in the capture fail;
+# and going through the API means these screenshots exercise the real create-and-attach
+# path, so a break in it shows up here rather than in production.
+echo "==> seeding a subscriber"
+api() { curl -fsS -b "$work/ck" -H 'Content-Type: application/json' "$@"; }
+
+subscriber=$(api -X POST "$PANEL_URL/api/subscribers" \
+  -d '{"name":"Ivan Petrov","note":"paid to August"}')
+subscriber_id=$(printf '%s' "$subscriber" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
+share_token=$(printf '%s' "$subscriber" | sed -n 's/.*"token": *"\([^"]*\)".*/\1/p' | head -1)
+[ -n "$subscriber_id" ] || { echo "could not create a subscriber: $subscriber"; exit 1; }
+
+# One account on each of two nodes, which is the case the whole feature exists for: a
+# person whose accounts live in more than one place.
+servers=$(api "$PANEL_URL/api/servers")
+nl_id=$(printf '%s' "$servers" | sed -n 's/.*"id": *"\([^"]*\)",[[:space:]]*"url": *"http:\/\/127.0.0.1:8801".*/\1/p' | head -1)
+de_id=$(printf '%s' "$servers" | tr -d '\n' | sed -n 's/.*"id": *"\([^"]*\)",[[:space:]]*"url": *"http:\/\/127.0.0.1:8802".*/\1/p' | head -1)
+for pair in "$nl_id:u_0B4X6TWQ8ZKM3N1PVJHR5DGYAC:phone" "$de_id:u_1C5Y7UXR9ALN4P2QWKIS6EHZBD:laptop"; do
+  sid="${pair%%:*}"; rest="${pair#*:}"; uid="${rest%%:*}"; label="${rest#*:}"
+  [ -n "$sid" ] || continue
+  api -X POST "$PANEL_URL/api/subscribers/$subscriber_id/entries" \
+    -d "{\"server_id\":\"$sid\",\"vless_user_id\":\"$uid\",\"label\":\"$label\"}" -o /dev/null || true
+done
+
 echo "==> starting headless chromium"
 "$chromium" --headless=new --remote-debugging-port=9222 \
   --user-data-dir="$work/chrome" \
@@ -113,6 +140,7 @@ pids+=($!)
 
 echo "==> capturing at ${WIDTH}px, ${THEME} theme"
 PANEL="$PANEL_URL" OUT="$here" SESSION_COOKIE="$cookie" WIDTH="$WIDTH" THEME="$THEME" \
+  SHARE_TOKEN="$share_token" \
   node "$here/shoot.mjs"
 
 echo "==> done"
