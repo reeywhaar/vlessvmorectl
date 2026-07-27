@@ -167,9 +167,21 @@ function start(port) {
 
     if (url.pathname === "/api/users") return send({ users });
 
+    // A single user. The panel's list views never ask for this — they read /api/users —
+    // but attaching an account to a subscriber verifies it here, and the share page reads
+    // one of these per attached account. Without it both fall through to the stdlib 404
+    // below, which the panel correctly but confusingly reports as a rejected token.
+    const one = url.pathname.match(/^\/api\/users\/([^/]+)$/);
+    if (one && req.method === "GET") {
+      const u = find(one[1]);
+      // JSON, not the stdlib page. That content type is the only thing distinguishing
+      // "no such user" from "your token is wrong", and the panel reads it.
+      if (!u) return send({ error: `user ${one[1]}: not found` }, 404);
+      return send(u);
+    }
+
     // Enough of PATCH to make the drawer's Save and its Enable/Disable button work when
-    // somebody pokes at the demo. Without it they fall through to the 404 below, which
-    // the panel correctly but confusingly reports as a rejected token.
+    // somebody pokes at the demo.
     const patch = url.pathname.match(/^\/api\/users\/([^/]+)$/);
     if (patch && req.method === "PATCH") {
       const u = find(patch[1]);
