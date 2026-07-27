@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react";
+import { Suspense, lazy, useMemo, useState, useTransition } from "react";
 import { Boundary } from "../../components/Boundary";
 import { ErrorState } from "../../components/ErrorState";
 import { QrMatrix } from "../../components/QrMatrix";
@@ -22,7 +22,7 @@ import {
   useUserUsage,
 } from "../../queries/hooks";
 import { Tri } from "../../api/patch";
-import { PRESETS, snapRange, type Preset } from "../../lib/range";
+import { PRESETS, snapRange, type Preset, type SnappedRange } from "../../lib/range";
 import { formatBytes, formatDateTime, quotaState, userState } from "../../lib/format";
 import { zeroFill } from "../usage/series";
 import type { Server, VlessUser } from "../../api/types";
@@ -239,12 +239,11 @@ function Credentials({
 function Usage({ server, user }: { server: Server; user: VlessUser }) {
   const [preset, setPreset] = useState<Preset>(PRESETS[0]!);
   const [asTable, setAsTable] = useState(false);
+  const [isPending, startTransition] = useTransition();
 
   // Snapped once per bucket rather than per render; see snapRange for why that matters
   // to both the cache and the proxy's coalescing.
   const range = useMemo(() => snapRange(preset), [preset]);
-  const { data, isFetching } = useUserUsage(server, user.id, range);
-  const points = useMemo(() => zeroFill(data.series, range), [data.series, range]);
 
   return (
     <section>
@@ -254,7 +253,10 @@ function Usage({ server, user }: { server: Server; user: VlessUser }) {
           {PRESETS.map((p) => (
             <button
               key={p.label}
-              onClick={() => setPreset(p)}
+              // In a transition, so React keeps the current chart on screen while the
+              // new range loads instead of replacing it with a fallback. Without this,
+              // every click on a range blanks the section and then repaints it.
+              onClick={() => startTransition(() => setPreset(p))}
               className={cx(
                 "rounded-lg px-2 py-1 text-xs",
                 p.label === preset.label ? "bg-accent text-accent-ink" : "text-muted hover:bg-line",
@@ -272,17 +274,21 @@ function Usage({ server, user }: { server: Server; user: VlessUser }) {
         </div>
       </div>
 
-      {/* keepPreviousData holds the previous render during a refetch; dimming says so
-          without a skeleton flash. */}
-      <div className={cx(isFetching && "opacity-60 transition-opacity")}>
-        <Suspense fallback={<Skeleton className="h-56 w-full" />}>
-          {asTable ? (
-            <UsageTable points={points} bucket={range.bucket} />
-          ) : (
-            <UsageChart points={points} bucket={range.bucket} />
-          )}
-        </Suspense>
-      </div>
+      {/*
+        The query lives in UsageBody, below this Suspense, and that placement is the
+        whole point: a suspending component hands control to its *nearest* boundary, so
+        calling useUserUsage out here would suspend the drawer's boundary instead and
+        blank the QR, the stat tiles and the actions along with the chart.
+      */}
+      <Suspense fallback={<Skeleton className="h-56 w-full" />}>
+        <UsageBody
+          server={server}
+          user={user}
+          range={range}
+          asTable={asTable}
+          pending={isPending}
+        />
+      </Suspense>
 
       <div className="mt-2 flex items-center gap-4 text-xs text-muted">
         <span className="flex items-center gap-1.5">
@@ -296,6 +302,35 @@ function Usage({ server, user }: { server: Server; user: VlessUser }) {
         </span>
       </div>
     </section>
+  );
+}
+
+function UsageBody({
+  server,
+  user,
+  range,
+  asTable,
+  pending,
+}: {
+  server: Server;
+  user: VlessUser;
+  range: SnappedRange;
+  asTable: boolean;
+  pending: boolean;
+}) {
+  const { data, isFetching } = useUserUsage(server, user.id, range);
+  const points = useMemo(() => zeroFill(data.series, range), [data.series, range]);
+
+  // Dimmed while a new range is arriving or a poll is in flight — enough to say
+  // "working" without throwing the previous answer away.
+  return (
+    <div className={cx((isFetching || pending) && "opacity-60 transition-opacity")}>
+      {asTable ? (
+        <UsageTable points={points} bucket={range.bucket} />
+      ) : (
+        <UsageChart points={points} bucket={range.bucket} />
+      )}
+    </div>
   );
 }
 
