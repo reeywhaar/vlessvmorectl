@@ -1,0 +1,167 @@
+/**
+ * Wire types, mirroring vlessvmore's API.md and its Go structs.
+ *
+ * Field names are the JSON ones, snake_case, deliberately unmapped. A camelCase layer
+ * would mean two names for every field and a translation to keep in step with a
+ * project that lives in another repository.
+ */
+
+/** One of our own managed nodes. Note the absence of a token: the browser never sees one. */
+export interface Server {
+  id: string;
+  url: string;
+}
+
+export interface Session {
+  username: string;
+  expires_at: string;
+}
+
+// ---- vlessvmore ----
+
+export interface VlessUser {
+  id: string;
+  name: string;
+  uuid: string;
+  enabled: boolean;
+  /** 0 means unlimited. */
+  quota_bytes: number;
+  /** Absent means never. */
+  expires_at?: string;
+  usage_reset_at: string;
+  /** Present only when enforcement turned the user off. */
+  disabled_reason?: "quota" | "expired";
+  sub_token?: string;
+  note?: string;
+  created_at: string;
+  updated_at: string;
+  usage?: UsageSummary;
+  subscription_url?: string;
+  install_url?: string;
+}
+
+export interface UsageSummary {
+  up: number;
+  down: number;
+  /** Lifetime. */
+  total: number;
+  /** Since usage_reset_at — this is what the quota is measured against. */
+  window_up: number;
+  window_down: number;
+  window_total: number;
+  quota_bytes: number;
+  /** 0 when unlimited, not "unlimited remaining". */
+  quota_remaining: number;
+}
+
+export interface SingBoxStatus {
+  running: boolean;
+  pid?: number;
+  started_at?: string;
+  config_path: string;
+  active_users: number;
+  last_reload?: string;
+  last_error?: string;
+}
+
+export interface ServerStatus {
+  sing_box: SingBoxStatus;
+  /**
+   * The full `sing-box version` output. Worth reading rather than displaying: without
+   * `with_v2ray_api` in its build tags there are no per-user counters at all, so usage
+   * stays at zero and quotas never fire — silently.
+   */
+  sing_box_version?: string;
+  users: number;
+  active_users: number;
+  tokens: number;
+  data_dir: string;
+}
+
+export interface ServerInfo {
+  host: string;
+  port: number;
+  sni: string;
+  public_key: string;
+  short_id: string;
+  flow: string;
+  fingerprint: string;
+  handshake: string;
+}
+
+export interface QRMatrix {
+  size: number;
+  /** `size` strings of `size` characters, '0' light and '1' dark, top row first. */
+  rows: string[];
+  /** Modules of light margin to add around the matrix. Without it, scanners fail. */
+  quiet_zone: number;
+}
+
+export interface UserLink {
+  user_id: string;
+  name: string;
+  link: string;
+  subscription_url?: string;
+  install_url?: string;
+  /** The `vless://` URI as a QR. ~250 characters, so a 69×69 code. */
+  qr?: QRMatrix;
+  /**
+   * The subscription URL as a QR, and the one to show by default.
+   *
+   * Preferred over `qr` for two reasons. A subscription keeps working across config and
+   * key changes because the client re-fetches it every 24 hours, and its
+   * `Subscription-Userinfo` headers are what make a client display remaining traffic and
+   * an expiry date in its own UI — vlessvmore's API.md calls that out as the reason to
+   * prefer a subscription over a pasted link, and its own install page encodes this one.
+   * It is also ~40 characters against ~250, so a 37×37 code instead of 69×69: markedly
+   * easier for a phone to lock onto off a screen.
+   */
+  subscription_qr?: QRMatrix;
+}
+
+export interface UsagePoint {
+  bucket: string;
+  up: number;
+  down: number;
+}
+
+export interface UsageSeries {
+  user_id: string;
+  name: string;
+  from: string;
+  to: string;
+  bucket: "hour" | "day";
+  /** Sparse: empty intervals are omitted, not zero-filled. */
+  series: UsagePoint[];
+  summary: UsageSummary;
+}
+
+export interface VlessToken {
+  id: string;
+  label: string;
+  created_at: string;
+  last_used_at?: string;
+  revoked_at?: string;
+}
+
+/**
+ * The envelope around every mutation that rewrites sing-box's config.
+ *
+ * The status is 2xx even when `reloaded` is false: the change is saved and will apply
+ * on the next successful reload, but it is *not live*. Anything that unwraps this must
+ * surface that, which is why useReloadAware exists rather than callers reaching for
+ * `.result` themselves.
+ *
+ * Not every mutation is wrapped, despite what API.md implies — rotate-sub, reload and
+ * token creation return bare bodies. The client's signatures encode which is which.
+ */
+export interface Reloaded<T> {
+  result: T;
+  reloaded: boolean;
+  reload_error?: string;
+}
+
+export interface DeletedUser {
+  deleted: string;
+  name: string;
+}

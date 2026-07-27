@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* The palette is vlessvmore's, lifted from its internal/api/web/static/app.css.
+ *
+ * Deliberately not a fresh set of colours. A user who gets a subscription link opens
+ * that project's install page; an operator who manages them opens this one. Sharing the
+ * palette and the favicon — a fedora and a moustache, likewise taken from there — makes
+ * the two read as one product rather than two tools that happen to talk to each other.
+ *
+ * Note the upstream quirk, kept on purpose: the accent is green in light mode and
+ * purple in dark, while the favicon has the green baked in (a favicon renders in its own
+ * document and cannot see custom properties). Matching that is the point. */
+@theme {
+  --color-bg: #f7f7f9;
+  --color-card: #ffffff;
+  --color-ink: #16161a;
+  --color-muted: #6b6b76;
+  --color-line: #e2e2e8;
+  --color-accent: #699e6c;
+  --color-accent-ink: #ffffff;
+  --color-ok: #2f8a3e;
+  --color-warn: #b3541e;
+  --color-danger: #b3241e;
+
+  /* Chart series. Two slots, assigned by entity and never by rank, so hiding one does
+   * not repaint the other. Distinct from the accent in both themes, and far enough
+   * apart to survive the common colour-vision deficiencies. */
+  --color-series-down: #2a78d6;
+  --color-series-up: #eb6834;
+
+  --radius-card: 14px;
+}
+
+/* Dark is the default for this panel — it is a tool people leave open on a second
+ * monitor. Both the media query and the explicit attribute are honoured, so a manual
+ * toggle wins over the system preference in either direction. */
+:root {
+  color-scheme: dark;
+}
+
+@layer theme {
+  :root,
+  :root[data-theme="dark"] {
+    --color-bg: #131317;
+    --color-card: #1c1c22;
+    --color-ink: #ececf1;
+    --color-muted: #9a9aa6;
+    --color-line: #2c2c35;
+    --color-accent: #8f8fdc;
+    --color-accent-ink: #14141a;
+    --color-ok: #6fd07f;
+    --color-warn: #e0a06a;
+    --color-danger: #e07a72;
+    --color-series-down: #3987e5;
+    --color-series-up: #d95926;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --color-bg: #f7f7f9;
+    --color-card: #ffffff;
+    --color-ink: #16161a;
+    --color-muted: #6b6b76;
+    --color-line: #e2e2e8;
+    --color-accent: #699e6c;
+    --color-accent-ink: #ffffff;
+    --color-ok: #2f8a3e;
+    --color-warn: #b3541e;
+    --color-danger: #b3241e;
+    --color-series-down: #2a78d6;
+    --color-series-up: #eb6834;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* This is a keyboard-driven admin tool. A focus ring that only appears for mouse users
+ * is worse than none. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Numbers in tables must line up; numbers in headline figures should not be forced to. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+dialog::backdrop {
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

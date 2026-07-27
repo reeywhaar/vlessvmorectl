@@ -1,0 +1,19 @@
+/private
+
+# Holds admins.json. Never commit it.
+/data/
+
+# Holds VLESSVMORE_SERVERS, i.e. full-control tokens for every node.
+.env
+
+/web/node_modules
+
+# The built bundle is ignored, but .gitkeep must stay tracked: web/embed.go does
+# //go:embed all:dist, and an absent directory is a compile error, not an empty
+# embed. Without this exception a fresh clone cannot `go build` or `go test`.
+# Hence `dist/*` rather than `dist` — git will not descend into an ignored directory
+# to find the exception.
+/web/dist/*
+!/web/dist/.gitkeep
+
+/vlessvmorectl
