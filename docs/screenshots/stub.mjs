@@ -167,6 +167,36 @@ function start(port) {
 
     if (url.pathname === "/api/users") return send({ users });
 
+    // Enough of PATCH to make the drawer's Save and its Enable/Disable button work when
+    // somebody pokes at the demo. Without it they fall through to the 404 below, which
+    // the panel correctly but confusingly reports as a rejected token.
+    const patch = url.pathname.match(/^\/api\/users\/([^/]+)$/);
+    if (patch && req.method === "PATCH") {
+      const u = find(patch[1]);
+      if (!u) return send({ error: `user ${patch[1]}: not found` }, 404);
+      let body = "";
+      req.on("data", (c) => (body += c));
+      return req.on("end", () => {
+        const fields = JSON.parse(body || "{}");
+        if (fields.name !== undefined) u.name = fields.name;
+        if (fields.note !== undefined) u.note = fields.note;
+        if (fields.enabled !== undefined) u.enabled = fields.enabled;
+        if (fields.quota_bytes !== undefined) {
+          u.quota_bytes = fields.quota_bytes;
+          u.usage.quota_bytes = fields.quota_bytes;
+          u.usage.quota_remaining =
+            fields.quota_bytes > 0 ? Math.max(0, fields.quota_bytes - u.usage.window_total) : 0;
+        }
+        // expires_at is three-valued: absent leaves it, null clears it, a string sets it.
+        if ("expires_at" in fields) {
+          if (fields.expires_at === null) delete u.expires_at;
+          else u.expires_at = fields.expires_at;
+        }
+        u.updated_at = iso(Date.now());
+        send({ result: u, reloaded: true });
+      });
+    }
+
     const link = url.pathname.match(/^\/api\/users\/([^/]+)\/link$/);
     if (link) {
       const u = find(link[1]);
