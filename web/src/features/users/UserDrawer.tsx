@@ -5,6 +5,7 @@ import { QrMatrix } from "../../components/QrMatrix";
 import {
   Badge,
   Button,
+  Confirm,
   ConfirmDelete,
   Dialog,
   Field,
@@ -125,7 +126,13 @@ function DrawerBody({
 
       <Details server={server} user={user} />
 
-      <Credentials server={server} user={user} onRotate={() => rotate.mutate(user.id)} rotating={rotate.isPending} />
+      <Credentials
+        server={server}
+        user={user}
+        onRotate={() => rotate.mutate(user.id)}
+        rotating={rotate.isPending}
+        rotated={rotate.isSuccess}
+      />
 
       <Usage server={server} user={user} />
 
@@ -270,13 +277,16 @@ function Credentials({
   user,
   onRotate,
   rotating,
+  rotated,
 }: {
   server: Server;
   user: VlessUser;
   onRotate: () => void;
   rotating: boolean;
+  rotated: boolean;
 }) {
   const { data: link } = useUserLink(server, user.id);
+  const [confirmRotate, setConfirmRotate] = useState(false);
 
   // The subscription is the better thing to scan: the client re-fetches it every 24
   // hours so config and key changes propagate, and its response headers are what make
@@ -344,12 +354,47 @@ function Credentials({
               Rotating issues a new subscription URL and kills the old one immediately. The
               UUID is untouched, so nobody is disconnected.
             </p>
-            <Button onClick={onRotate} disabled={rotating}>
+            <Button onClick={() => setConfirmRotate(true)} disabled={rotating}>
               {rotating ? "Rotating…" : "Rotate"}
             </Button>
           </div>
+
+          {/*
+            Stays up until the drawer closes, because the thing that goes wrong after a
+            rotation is silent: the client keeps connecting on its stored config, so
+            nobody notices that its subscription refresh has been 404ing until a config
+            change fails to reach them weeks later.
+          */}
+          {rotated ? (
+            <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
+              Rotated. Any link you sent before now returns 404 — send {user.name} the new
+              subscription URL above.
+            </p>
+          ) : null}
         </div>
       </div>
+
+      <Confirm
+        open={confirmRotate}
+        title={`Rotate ${user.name}'s subscription URL?`}
+        confirmLabel="Rotate"
+        busy={rotating}
+        onCancel={() => setConfirmRotate(false)}
+        onConfirm={() => {
+          onRotate();
+          setConfirmRotate(false);
+        }}
+      >
+        <p>
+          The current subscription and install links stop working the moment you do this,
+          including any you have already sent. There is no way back to the old ones.
+        </p>
+        <p>
+          Nobody is disconnected — the UUID does not change, so an already-configured
+          client keeps connecting. But it will stop receiving config updates and stop
+          showing quota and expiry until {user.name} has the new link.
+        </p>
+      </Confirm>
     </section>
   );
 }

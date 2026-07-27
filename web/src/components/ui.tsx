@@ -274,6 +274,47 @@ export function Dialog({
 }
 
 /**
+ * A plain are-you-sure, for actions that are irreversible but not destructive.
+ *
+ * Deliberately lighter than ConfirmDelete: no typing, one click to proceed. The
+ * distinction is whether the operator can recover. Deleting a user cannot be undone at
+ * all; rotating a subscription can be put right by sending the new link, so gating it
+ * behind a typing exercise would just be friction on an action people reach for during
+ * an incident.
+ */
+export function Confirm({
+  open,
+  title,
+  confirmLabel,
+  variant = "primary",
+  busy,
+  onCancel,
+  onConfirm,
+  children,
+}: {
+  open: boolean;
+  title: ReactNode;
+  confirmLabel: string;
+  variant?: ButtonVariant;
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Dialog open={open} onClose={onCancel} title={title}>
+      <div className="space-y-2 text-sm text-muted">{children}</div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button variant={variant} disabled={busy} onClick={onConfirm}>
+          {busy ? "Working…" : confirmLabel}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+/**
  * Deleting a user takes their usage history with it and cannot be undone, so this asks
  * for the name to be typed rather than for a click on a button labelled "OK".
  */
