@@ -10,9 +10,9 @@ import {
   EmptyState,
   Input,
   PageHeader,
+  QuotaMeter,
   Skeleton,
   StatTile,
-  cx,
 } from "../components/ui";
 import { UserDrawer } from "../features/users/UserDrawer";
 import { CreateUserDialog } from "../features/users/CreateUserDialog";
@@ -235,25 +235,9 @@ function UserRow({ user, onSelect }: { user: VlessUser; onSelect: (id: string) =
   );
 }
 
-/** Free from data the 10-second poll already carries; no extra request per row. */
-export function QuotaMeter({ fraction }: { fraction: number }) {
-  const pct = Math.round(fraction * 100);
-  return (
-    <div
-      className="h-1.5 w-full overflow-hidden rounded-full bg-line"
-      role="meter"
-      aria-valuenow={pct}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label="Quota used"
-    >
-      <div
-        className={cx(
-          "h-full rounded-full",
-          fraction >= 1 ? "bg-danger" : fraction > 0.85 ? "bg-warn" : "bg-accent",
-        )}
-        style={{ width: `${Math.max(2, pct)}%` }}
-      />
-    </div>
-  );
-}
+// QuotaMeter used to live here and now lives in components/ui.tsx.
+//
+// It moved because the public share page needs it, and importing it from this module
+// would have pulled UserDrawer and CreateUserDialog — the entire operator UI — into the
+// public chunk through this file's static imports, silently undoing the code splitting
+// that keeps a subscriber on mobile data from downloading a panel they cannot use.

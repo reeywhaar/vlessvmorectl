@@ -142,6 +142,35 @@ export function Banner({ tone = "warn", title, children, action }: { tone?: Tone
   );
 }
 
+/**
+ * A quota bar. Free from data the caller already has; no extra request per row.
+ *
+ * Lives here rather than beside its first caller in routes/ServerPage.tsx because the
+ * public share page draws one too, and that page must not import from routes/ — see the
+ * note left behind in ServerPage.
+ */
+export function QuotaMeter({ fraction }: { fraction: number }) {
+  const pct = Math.round(fraction * 100);
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full bg-line"
+      role="meter"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Quota used"
+    >
+      <div
+        className={cx(
+          "h-full rounded-full",
+          fraction >= 1 ? "bg-danger" : fraction > 0.85 ? "bg-warn" : "bg-accent",
+        )}
+        style={{ width: `${Math.max(2, pct)}%` }}
+      />
+    </div>
+  );
+}
+
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cx("animate-pulse rounded-lg bg-line", className)} aria-hidden />;
 }
