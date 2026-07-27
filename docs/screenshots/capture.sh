@@ -60,6 +60,28 @@ echo "==> starting the stand-in nodes"
 node "$here/stub.mjs" > "$work/stub.log" 2>&1 &
 pids+=($!)
 
+# Verify they are *ours*. A stub left running from an earlier attempt keeps the port, the
+# new one dies with EADDRINUSE in the background where nothing notices, and the capture
+# quietly succeeds against stale data — which is exactly how a set of screenshots ends up
+# showing something the code no longer does.
+for port in 8801 8802 8803; do
+  ready=""
+  for _ in $(seq 40); do
+    if curl -fsS "http://127.0.0.1:$port/api/server" > /dev/null 2>&1; then ready=1; break; fi
+    sleep 0.25
+  done
+  if [ -z "$ready" ]; then
+    echo "stand-in node on :$port never answered:" >&2
+    cat "$work/stub.log" >&2
+    exit 1
+  fi
+done
+if ! grep -q "vpn-nl.example.com" <(curl -fsS http://127.0.0.1:8801/api/server); then
+  echo "something else is already listening on :8801 — stop it and try again" >&2
+  cat "$work/stub.log" >&2
+  exit 1
+fi
+
 echo "==> starting the panel"
 export VLESSVMORECTL_DATA_DIR="$work/data"
 "$work/vlessvmorectl" users add demo demopassword123 > /dev/null

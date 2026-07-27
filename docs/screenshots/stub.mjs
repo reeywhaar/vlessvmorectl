@@ -60,6 +60,7 @@ function usage({ windowTotal, lifetime, quota }) {
 
 const NODES = {
   8801: {
+    name: "Amsterdam",
     host: "vpn-nl.example.com",
     users: [
       { name: "alice", note: "laptop", quota: 0, win: 41.3 * GB, life: 214 * GB },
@@ -72,6 +73,7 @@ const NODES = {
     ],
   },
   8802: {
+    name: "Frankfurt",
     host: "vpn-de.example.com",
     users: [
       { name: "greta", quota: 200 * GB, win: 91.5 * GB, life: 340 * GB },
@@ -127,6 +129,9 @@ function start(port) {
 
     if (url.pathname === "/api/server") {
       return send({
+        // Omitted when unset, exactly as vlessvmore does — vpn-sg has no name, so the
+        // panel falls back to its hostname and both paths appear in one screenshot.
+        ...(node.name ? { name: node.name } : {}),
         host: node.host,
         port: 8443,
         sni: node.host,
