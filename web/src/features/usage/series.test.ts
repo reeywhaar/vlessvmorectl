@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { zeroFill } from "./series";
+import { byteTicks, zeroFill } from "./series";
 import { HOUR_MS, snapRange, type SnappedRange } from "../../lib/range";
+import { formatBytes } from "../../lib/format";
 
 const H = HOUR_MS;
 
@@ -81,6 +82,40 @@ describe("zeroFill", () => {
     const filled = zeroFill([{ bucket: "not a date", up: 1, down: 1 }], hourRange(2, end));
 
     expect(filled.every((p) => Number.isFinite(p.total))).toBe(true);
+  });
+});
+
+describe("byteTicks", () => {
+  /**
+   * The defect this exists for: left to itself a chart library picks arithmetically tidy
+   * values — 811 MB, 1.6 GB, 2.4 GB — and formatBytes rounds the last two to the same
+   * string, so the axis reads "2 GB" twice and looks broken.
+   */
+  it("never produces two ticks with the same label", () => {
+    for (const max of [900, 5_000, 3_100_000, 900 * 1024 ** 2, 2.9 * 1024 ** 3, 1.4 * 1024 ** 4]) {
+      const labels = byteTicks(max).map((v) => formatBytes(v, 0));
+      expect(new Set(labels).size, `duplicate label in ${labels.join(", ")}`).toBe(labels.length);
+    }
+  });
+
+  it("starts at zero and closes above the tallest column", () => {
+    for (const max of [1, 900, 2.9 * 1024 ** 3, 613 * 1024 ** 3]) {
+      const ticks = byteTicks(max);
+      expect(ticks[0]).toBe(0);
+      expect(ticks.at(-1)).toBeGreaterThanOrEqual(max);
+    }
+  });
+
+  it("uses a power-of-two step, which is what makes the labels exact", () => {
+    const ticks = byteTicks(2.9 * 1024 ** 3);
+    const step = ticks[1]!;
+    expect(Math.log2(step) % 1).toBe(0);
+    ticks.forEach((v, i) => expect(v).toBe(i * step));
+  });
+
+  it("survives an all-zero series", () => {
+    expect(() => byteTicks(0)).not.toThrow();
+    expect(byteTicks(0)[0]).toBe(0);
   });
 });
 

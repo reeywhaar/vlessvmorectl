@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatBytes, formatLocalHour, formatUTCDate } from "../../lib/format";
-import type { FilledPoint } from "./series";
+import { byteTicks, type FilledPoint } from "./series";
 import type { Bucket } from "../../lib/range";
 
 /**
@@ -29,6 +29,11 @@ import type { Bucket } from "../../lib/range";
 export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: Bucket }) {
   const label = (t: number) => (bucket === "hour" ? formatLocalHour(t) : formatUTCDate(t));
 
+  // Explicit ticks rather than Recharts' own: see byteTicks for why arithmetically tidy
+  // values produce an axis with the same label twice.
+  const ticks = byteTicks(Math.max(...points.map((p) => p.total), 0));
+  const top = ticks[ticks.length - 1] ?? 0;
+
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer>
@@ -42,8 +47,10 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
             tick={{ fill: "var(--color-muted)", fontSize: 11 }}
             minTickGap={28}
           />
-          {/* One axis, never two. Ticks land on clean binary multiples via formatBytes. */}
+          {/* One axis, never two. */}
           <YAxis
+            ticks={ticks}
+            domain={[0, top]}
             tickFormatter={(v: number) => formatBytes(v, 0)}
             stroke="var(--color-line)"
             tick={{ fill: "var(--color-muted)", fontSize: 11 }}

@@ -55,6 +55,25 @@ export function zeroFill(series: UsagePoint[], r: SnappedRange): FilledPoint[] {
   return out;
 }
 
+/**
+ * Y-axis ticks at powers of two.
+ *
+ * Left to itself a chart library picks arithmetically tidy values — 811 MB, 1.6 GB,
+ * 2.4 GB — and formatBytes rounds those to "811 MB", "2 GB", "2 GB": an axis with the
+ * same label twice, which reads as a rendering fault. A power-of-two step is exact in
+ * binary units, so every tick formats to a distinct, round string.
+ */
+export function byteTicks(max: number, count = 4): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0, 1024];
+
+  const step = 2 ** Math.ceil(Math.log2(max / count));
+  const ticks: number[] = [];
+  for (let v = 0; v <= max + step / 2; v += step) ticks.push(v);
+  // Always close the axis above the tallest column rather than clipping it.
+  if (ticks[ticks.length - 1]! < max) ticks.push(ticks.length * step);
+  return ticks;
+}
+
 /** Peak total across the filled series, for a direct label on the tallest column. */
 export function peakOf(points: FilledPoint[]): FilledPoint | null {
   let peak: FilledPoint | null = null;
