@@ -27,7 +27,18 @@ import (
 type SPA struct {
 	assets map[string]asset
 	index  asset
-	log    *slog.Logger
+
+	// access is the subscriber island's shell, built from web/access.html as a second
+	// Vite entry. Served for /access/… and nowhere else.
+	//
+	// Two documents rather than one, because they are two applications. The panel's
+	// bundle contains every operator page; the share page's contains none of them. A
+	// single index.html with a client-side route would have meant serving a stranger the
+	// whole panel and relying on nobody ever writing the wrong import. See
+	// web/vite.config.ts for the fuller argument, including what this does not achieve.
+	access   asset
+	hasIndex bool
+	log      *slog.Logger
 }
 
 // asset holds a file in both the form it is stored in and the form a client without
@@ -116,11 +127,23 @@ func NewSPA(dist fs.FS, log *slog.Logger) (*SPA, error) {
 	}
 
 	if idx, ok := s.assets["/index.html"]; ok {
-		s.index = idx
+		s.index, s.hasIndex = idx, true
 	} else {
 		b := []byte(placeholderIndex)
 		s.index = asset{body: b, plain: b, etag: etagOf(b), ctype: "text/html; charset=utf-8"}
 		log.Warn("serving a placeholder page: web/dist/index.html is missing, so this build has no frontend")
+	}
+
+	if acc, ok := s.assets["/access.html"]; ok {
+		s.access = acc
+	} else {
+		// Falling back to the panel's shell rather than 404ing. A share link that loads
+		// something is recoverable; one that dead-ends looks to its holder like the link
+		// itself is wrong, and they will go and ask for a new one that behaves the same.
+		s.access = s.index
+		if s.hasIndex {
+			log.Warn("web/dist/access.html is missing, so share links will load the panel shell; rebuild the frontend")
+		}
 	}
 	return s, nil
 }
@@ -166,7 +189,26 @@ func (s *SPA) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// caching it hard would strand a browser on a stale bundle reference after a
 	// deploy.
 	w.Header().Set("Cache-Control", "no-cache")
-	s.serve(w, r, s.index)
+	s.serve(w, r, s.shellFor(clean))
+}
+
+// shellFor picks which island's document a navigation gets.
+//
+// The whole of the routing between the two, deliberately: one prefix, checked in one
+// place.
+//
+// The bare "/access" case is the island's too, not the panel's. It is what a truncated
+// share link looks like — messaging apps cut long URLs — and the island answers it with
+// "that link looks incomplete", which is both true and actionable. Letting it fall
+// through to the panel would show a login form to somebody who has never heard of this
+// panel, which is the exact failure the split exists to prevent.
+//
+// Note that clean has been through path.Clean, so "/access/" arrives here as "/access".
+func (s *SPA) shellFor(clean string) asset {
+	if clean == strings.TrimSuffix(AccessPath, "/") || strings.HasPrefix(clean, AccessPath) {
+		return s.access
+	}
+	return s.index
 }
 
 func (s *SPA) serve(w http.ResponseWriter, r *http.Request, a asset) {

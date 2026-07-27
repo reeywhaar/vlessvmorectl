@@ -23,6 +23,7 @@ func testSPA(t *testing.T, files fstest.MapFS) *SPA {
 
 var bundle = fstest.MapFS{
 	"index.html":            {Data: []byte("<!doctype html><title>panel</title>")},
+	"access.html":           {Data: []byte("<!doctype html><title>share</title>")},
 	"favicon.svg":           {Data: []byte("<svg/>")},
 	"assets/app-abc123.js":  {Data: []byte("console.log(1)")},
 	"assets/app-def456.css": {Data: []byte("body{}")},
@@ -83,7 +84,10 @@ func TestSPAConditionalRequest(t *testing.T) {
 func TestSPAFallsBackForRoutes(t *testing.T) {
 	spa := testSPA(t, bundle)
 
-	for _, path := range []string{"/", "/login", "/servers/a3f21c8ee4b1", "/servers/a3f21c8ee4b1/users/u_1"} {
+	for _, path := range []string{
+		"/", "/login", "/servers/a3f21c8ee4b1", "/servers/a3f21c8ee4b1/users/u_1",
+		"/subscribers",
+	} {
 		rec := get(spa, path, map[string]string{"Accept": "text/html"})
 		if rec.Code != http.StatusOK {
 			t.Errorf("%s: got %d, want 200", path, rec.Code)
@@ -96,6 +100,57 @@ func TestSPAFallsBackForRoutes(t *testing.T) {
 		if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
 			t.Errorf("%s: Cache-Control = %q, want no-cache", path, cc)
 		}
+	}
+}
+
+// The two islands are two documents, and which one a navigation gets is the whole of the
+// boundary that keeps operator code out of a subscriber's browser. Pinned here rather than
+// left to inspection, because it is one prefix check away from silently regressing into
+// "everyone gets the panel".
+func TestSPAServesTheRightIslandShell(t *testing.T) {
+	spa := testSPA(t, bundle)
+
+	const token = "QK7M2XA9TESTTKEN0123456789ABCDEF"
+	cases := map[string]string{
+		"/access/" + token: "share",
+		// A truncated link, with and without the trailing slash. Both are the island's:
+		// falling through to the panel here would show a login form to somebody who has
+		// never heard of this panel.
+		"/access":  "share",
+		"/access/": "share",
+		// Not the island. "/accessories" starts with "/access" as a string and is an
+		// ordinary panel route; a prefix check written without the separator would hand
+		// it the wrong document.
+		"/accessories": "panel",
+		"/":            "panel",
+		"/subscribers": "panel",
+	}
+
+	for path, want := range cases {
+		rec := get(spa, path, map[string]string{"Accept": "text/html"})
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: got %d, want 200", path, rec.Code)
+			continue
+		}
+		if !strings.Contains(rec.Body.String(), "<title>"+want) {
+			t.Errorf("%s: served the wrong island's shell, want %q", path, want)
+		}
+	}
+}
+
+// A build with no access.html should still load *something* for a share link. A link that
+// dead-ends looks to its holder like the link itself is wrong, and they will ask for
+// another one that behaves identically.
+func TestSPAFallsBackToThePanelShellWithoutAccessHTML(t *testing.T) {
+	spa := testSPA(t, fstest.MapFS{
+		"index.html": {Data: []byte("<!doctype html><title>panel</title>")},
+	})
+	rec := get(spa, "/access/QK7M2XA9TESTTKEN0123456789ABCDEF", map[string]string{"Accept": "text/html"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "<title>panel") {
+		t.Error("expected the panel shell as a fallback")
 	}
 }
 

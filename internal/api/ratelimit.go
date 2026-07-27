@@ -122,3 +122,99 @@ func (w *window) within(now time.Time) bool {
 func limiterKey(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
+
+// Share-link throttling.
+//
+// The same two-bucket shape as loginLimiter, the same reasoning, a different scarce
+// resource. There it was 250ms of bcrypt on this box; here it is somebody else's VPS,
+// because one GET of a share link becomes roughly two credentialed calls per attached
+// account against nodes that are, by design, small.
+//
+// What this is *not* for is worth stating, because it looks like a guessing defence and
+// is not one. A share token is 160 bits; brute force is not reachable with or without a
+// limiter, and an unknown token is answered from memory before any node is contacted, so
+// spraying tokens costs the nodes nothing. This exists purely as an amplification ceiling
+// on somebody who already holds a working link and is refreshing it in a loop.
+//
+// The global cap sits far above the per-link one, for the reason spelled out above
+// loginLimiter: set them close and a single caller denies service to every other
+// subscriber by draining the shared bucket.
+const (
+	accessPerTokenRequests = 20  // per minute: a page load plus impatient refreshes
+	accessGlobalRequests   = 200 // per minute, every link together
+)
+
+// accessLimiter throttles GET /api/access/{token}.
+//
+// Buckets are created only by allowToken, which the handler calls *after* the store has
+// resolved the token — see the comment there. Keying on presented tokens instead would
+// let anyone mint an unbounded number of map entries by varying a path segment, turning a
+// rate limiter into a memory leak.
+type accessLimiter struct {
+	mu sync.Mutex
+
+	tokens       map[string]*window
+	global       window
+	lastReapedAt time.Time
+
+	// loggedAt throttles the log line, not the limit. A per-request line on an endpoint
+	// whose entire problem is request volume would make the log the amplifier.
+	loggedAt time.Time
+}
+
+func newAccessLimiter() *accessLimiter {
+	return &accessLimiter{tokens: make(map[string]*window)}
+}
+
+// allowGlobal counts a request against the endpoint-wide cap.
+//
+// Called before the store lookup, so that a flood of unknown tokens still cannot spin
+// this handler without bound — but note it allocates nothing per token, which is the
+// property that makes it safe to call on unauthenticated input.
+func (l *accessLimiter) allowGlobal(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reapLocked(now)
+	return l.global.roll(now) <= accessGlobalRequests
+}
+
+// allowToken counts a request against one link's bucket.
+//
+// The key is a fingerprint rather than the token itself: this map is long-lived, and a
+// process holding a table of live credentials in memory for no reason is a needless place
+// for them to be found.
+func (l *accessLimiter) allowToken(fingerprint string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	w, ok := l.tokens[fingerprint]
+	if !ok {
+		w = &window{}
+		l.tokens[fingerprint] = w
+	}
+	return w.roll(now) <= accessPerTokenRequests
+}
+
+// shouldLog reports whether this refusal is the first in its window.
+func (l *accessLimiter) shouldLog(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if now.Sub(l.loggedAt) < limitWindow {
+		return false
+	}
+	l.loggedAt = now
+	return true
+}
+
+// reapLocked drops windows that have aged out. Caller holds the lock.
+func (l *accessLimiter) reapLocked(now time.Time) {
+	if now.Sub(l.lastReapedAt) < limitWindow {
+		return
+	}
+	l.lastReapedAt = now
+	for k, w := range l.tokens {
+		if !w.within(now) {
+			delete(l.tokens, k)
+		}
+	}
+}

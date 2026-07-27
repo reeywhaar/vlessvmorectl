@@ -63,7 +63,10 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 
 	log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: cfg.LogLevel}))
 
-	st, err := store.Open(dataDir)
+	// OpenForDaemon rather than Open: this process is the only writer of
+	// subscribers.json, and the read-only handle every other call site gets is what
+	// stops a future CLI command quietly corrupting it. See the store's package doc.
+	st, err := store.OpenForDaemon(dataDir)
 	if err != nil {
 		return err
 	}
@@ -109,6 +112,7 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 		"addr", config.ListenAddr,
 		"data_dir", st.Dir(),
 		"admins", st.Admins.Count(),
+		"subscribers", st.Subscribers.Count(),
 		// Counts only. Never the URLs at info level, and never the tokens at any level.
 		"servers", len(cfg.Servers))
 

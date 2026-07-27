@@ -91,7 +91,15 @@ func TestNoCORSEverEmitted(t *testing.T) {
 	h := newHarness(t, up.URL+"|"+testToken)
 	cookie := h.login()
 
-	paths := []string{"/", "/api/me", "/api/servers", "/healthz", proxyTarget(up.URL + "/api/status")}
+	paths := []string{
+		"/", "/api/me", "/api/servers", "/healthz", proxyTarget(up.URL + "/api/status"),
+		// The unauthenticated access endpoint most of all: it is the one route a
+		// cross-origin page has any reason to want, so it is the one where somebody will
+		// eventually be tempted to "just add CORS".
+		"/api/access/QK7M2XA9TESTTKEN0123456789ABCDEF",
+		"/access/QK7M2XA9TESTTKEN0123456789ABCDEF",
+		"/api/subscribers",
+	}
 	origins := []string{"https://evil.test", "null", "http://localhost:5173", "*"}
 
 	for _, p := range paths {

@@ -20,6 +20,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -40,6 +42,7 @@ type Server struct {
 	sessions *session.Table
 	spa      *SPA
 	limiter  *loginLimiter
+	access   *accessLimiter
 	proxy    *proxyClient
 	log      *slog.Logger
 	now      func() time.Time
@@ -56,6 +59,7 @@ func New(cfg *config.Config, st *store.Store, sessions *session.Table, spa *SPA,
 		sessions: sessions,
 		spa:      spa,
 		limiter:  newLoginLimiter(),
+		access:   newAccessLimiter(),
 		proxy:    newProxyClient(),
 		log:      log,
 		now:      now,
@@ -66,15 +70,29 @@ func New(cfg *config.Config, st *store.Store, sessions *session.Table, spa *SPA,
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Unauthenticated.
+	// Unauthenticated. This block is the complete list of what a stranger can reach, and
+	// it is kept as one block for exactly that reason.
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("POST /api/login", s.login)
 	mux.HandleFunc("POST /api/logout", s.logout)
 	mux.HandleFunc("GET /api/me", s.me)
+	// A subscriber's own list of accounts, selected by a capability in the path. Unlike
+	// /api/proxy this takes nothing from the caller that reaches an outbound request;
+	// see accessHandler's doc comment, which is worth reading before changing this line.
+	mux.HandleFunc("GET /api/access/{token}", s.accessHandler)
 
 	// Authenticated.
 	mux.Handle("GET /api/servers", s.requireSession(s.listServers))
 	mux.Handle("/api/proxy", s.requireSession(s.proxyHandler))
+
+	mux.Handle("GET /api/subscribers", s.requireSession(s.listSubscribers))
+	mux.Handle("POST /api/subscribers", s.requireSession(s.createSubscriber))
+	mux.Handle("GET /api/subscribers/{id}", s.requireSession(s.getSubscriber))
+	mux.Handle("PATCH /api/subscribers/{id}", s.requireSession(s.patchSubscriber))
+	mux.Handle("DELETE /api/subscribers/{id}", s.requireSession(s.deleteSubscriber))
+	mux.Handle("POST /api/subscribers/{id}/entries", s.requireSession(s.attachEntry))
+	mux.Handle("PATCH /api/subscribers/{id}/entries/{entryID}", s.requireSession(s.patchEntry))
+	mux.Handle("DELETE /api/subscribers/{id}/entries/{entryID}", s.requireSession(s.detachEntry))
 
 	// Anything else under /api is a 404 in JSON, never the SPA. An SPA fetch that
 	// receives 200 text/html for a typo'd endpoint fails with a JSON parse error three
@@ -98,8 +116,15 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
+		// Load-bearing for /access/{token}, not merely tidy: without it, a subscriber
+		// tapping through to a node's install page would send their share token to that
+		// origin in a Referer header.
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
+		// A panel should never be indexed, and a share link that reaches a crawler —
+		// through a paste, a link preview, a browser extension — should never become a
+		// search result.
+		h.Set("X-Robots-Tag", "noindex, nofollow")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -246,9 +271,55 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 		if rec.status >= 400 {
 			s.log.Warn("request failed",
-				"method", r.Method, "path", r.URL.Path, "status", rec.status)
+				"method", r.Method, "path", redactPath(r.URL.Path), "status", rec.status)
 		}
 	})
+}
+
+// redactPath replaces a subscriber's share token with a fingerprint.
+//
+// /access/{token} and /api/access/{token} carry a credential in a path segment, and the
+// line above prints the path of every 4xx and 5xx — which is precisely the set of
+// requests where the token is most likely to be one somebody mistyped, one that has been
+// disabled, or one being hammered. Without this, every such request writes a working
+// capability into the container log, and from there into wherever logs are shipped, for
+// as long as retention says.
+//
+// The fingerprint keeps the line useful rather than merely safe: an operator holding the
+// token can derive the same eight characters, so "is Ivan's link reaching us?" and "is
+// one dead link being retried a thousand times?" are still answerable, while the log is
+// worth nothing to whoever reads it later. Same idea, and the same shape, as
+// store.HashFingerprint.
+//
+// Note what this does not solve: the reverse proxy in front of this service logs the
+// full request line, so a share token will appear in Caddy's access log. That is the
+// standing cost of capability URLs — the node's own /sub/ and /show/ URLs have it too —
+// and it belongs in the deployment documentation rather than in a function here.
+func redactPath(p string) string {
+	for _, prefix := range [...]string{"/api/access/", "/access/"} {
+		rest, ok := strings.CutPrefix(p, prefix)
+		if !ok {
+			continue
+		}
+		// Only the first segment is the token; anything after it is a path the router
+		// will not have matched anyway, and is safe to keep for diagnosis.
+		token, tail, _ := strings.Cut(rest, "/")
+		if token == "" {
+			return p
+		}
+		out := prefix + tokenFingerprint(token)
+		if tail != "" {
+			out += "/" + tail
+		}
+		return out
+	}
+	return p
+}
+
+// tokenFingerprint is eight hex characters standing in for a share token.
+func tokenFingerprint(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:4])
 }
 
 type statusRecorder struct {

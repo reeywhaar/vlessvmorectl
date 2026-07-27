@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -90,9 +91,11 @@ func newHarness(t *testing.T, serversEnv string) *harness {
 		t.Fatalf("config.Load: %v", err)
 	}
 
-	st, err := store.Open(t.TempDir())
+	// OpenForDaemon, matching serve.go: the handlers under test write subscribers.json,
+	// and the CLI-shaped read-only handle would refuse them.
+	st, err := store.OpenForDaemon(t.TempDir())
 	if err != nil {
-		t.Fatalf("store.Open: %v", err)
+		t.Fatalf("store.OpenForDaemon: %v", err)
 	}
 	if _, err := st.Admins.Create("alice", testPassword, time.Now()); err != nil {
 		t.Fatalf("create admin: %v", err)
@@ -157,6 +160,23 @@ func (h *harness) do(method, target string, cookie *http.Cookie, body string) *h
 	return rec
 }
 
+// doWithHeaders issues an anonymous GET with extra headers, for the tests that try to
+// steer the server with Host and X-Forwarded-Host.
+func (h *harness) doWithHeaders(method, target string, headers map[string]string) *httptest.ResponseRecorder {
+	h.t.Helper()
+	req := httptest.NewRequest(method, target, nil)
+	for k, v := range headers {
+		if k == "Host" {
+			req.Host = v
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	h.handler.ServeHTTP(rec, req)
+	return rec
+}
+
 // proxyTarget builds a /api/proxy?url=… request target, encoding as the SPA does.
 func proxyTarget(raw string) string {
 	v := url.Values{}
@@ -168,4 +188,133 @@ func proxyTarget(raw string) string {
 // behind the daemon's back.
 func (h *harness) adminsFile() string {
 	return filepath.Join(h.store.Dir(), store.AdminsFile)
+}
+
+// ---- subscriber and node helpers ----
+
+// nodeUserFixture is one account on a stub node.
+type nodeUserFixture struct {
+	ID             string
+	Name           string
+	Enabled        bool
+	DisabledReason string
+	QuotaBytes     int64
+	WindowTotal    int64
+}
+
+// newNodeUpstream starts a stub vlessvmore node that answers the three endpoints the
+// access handler calls, plus a stdlib 404 for anything else — which is how the real node
+// spells every refusal, including a rejected token.
+//
+// The fixtures deliberately carry a sub_token and a uuid in their JSON even though this
+// service never decodes them: the projection tests assert those strings do *not* reach
+// the public response, and an upstream that never sent them would make those tests pass
+// for the wrong reason.
+func newNodeUpstream(t *testing.T, label string, users ...nodeUserFixture) *upstream {
+	t.Helper()
+	byID := make(map[string]nodeUserFixture, len(users))
+	for _, u := range users {
+		byID[u.ID] = u
+	}
+
+	return newUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		writeNodeJSON := func(body string) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = io.WriteString(w, body)
+		}
+
+		if r.URL.Path == "/api/server" {
+			writeNodeJSON(`{"name":"` + label + `","host":"` + label + `.example.com",` +
+				`"port":8443,"sni":"www.microsoft.com","public_key":"PUBKEY-` + label + `",` +
+				`"short_id":"ab12","flow":"xtls-rprx-vision","fingerprint":"chrome",` +
+				`"handshake":"www.microsoft.com:443"}`)
+			return
+		}
+
+		rest, ok := strings.CutPrefix(r.URL.Path, "/api/users/")
+		if !ok {
+			http.NotFound(w, r) // stdlib text/plain, as the real node does
+			return
+		}
+		id, tail, _ := strings.Cut(rest, "/")
+		u, known := byID[id]
+		if !known {
+			// A genuine not-found is JSON; that is the only way to tell it from a
+			// rejected token. See isStdlibNotFound.
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":"no such user"}`)
+			return
+		}
+
+		reason := ""
+		if u.DisabledReason != "" {
+			reason = `"disabled_reason":"` + u.DisabledReason + `",`
+		}
+		switch tail {
+		case "":
+			writeNodeJSON(`{"id":"` + u.ID + `","name":"` + u.Name + `",` +
+				`"uuid":"uuid-of-` + u.ID + `","enabled":` + boolJSON(u.Enabled) + `,` +
+				`"quota_bytes":` + itoa(u.QuotaBytes) + `,` + reason +
+				`"sub_token":"SUBTOKENOF` + strings.ToUpper(u.ID) + `",` +
+				`"usage_reset_at":"2026-07-01T00:00:00Z",` +
+				`"created_at":"2026-06-01T00:00:00Z","updated_at":"2026-07-01T00:00:00Z",` +
+				`"usage":{"up":1,"down":2,"total":3,"window_up":10,"window_down":` +
+				itoa(u.WindowTotal-10) + `,"window_total":` + itoa(u.WindowTotal) + `,` +
+				`"quota_bytes":` + itoa(u.QuotaBytes) + `,"quota_remaining":` +
+				itoa(max(u.QuotaBytes-u.WindowTotal, 0)) + `}}`)
+		case "link":
+			writeNodeJSON(`{"user_id":"` + u.ID + `","name":"` + u.Name + `",` +
+				`"link":"vless://uuid-of-` + u.ID + `@` + label + `.example.com:8443?type=tcp",` +
+				`"subscription_url":"https://` + label + `.example.com/sub/SUBTOKENOF` +
+				strings.ToUpper(u.ID) + `",` +
+				`"install_url":"https://` + label + `.example.com/show/SUBTOKENOF` +
+				strings.ToUpper(u.ID) + `",` +
+				`"qr":{"size":2,"rows":["10","01"],"quiet_zone":4},` +
+				`"subscription_qr":{"size":2,"rows":["11","00"],"quiet_zone":4}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+func boolJSON(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// subscriber creates one directly in the store, bypassing the API, so a test can set up
+// state without asserting on the create path.
+func (h *harness) subscriber(name string, entries ...store.NewEntry) *store.Subscriber {
+	h.t.Helper()
+	sub, err := h.store.Subscribers.Create(name, "", time.Now())
+	if err != nil {
+		h.t.Fatalf("create subscriber: %v", err)
+	}
+	for _, e := range entries {
+		sub, err = h.store.Subscribers.Attach(sub.ID, e, time.Now())
+		if err != nil {
+			h.t.Fatalf("attach %s/%s: %v", e.ServerID, e.VlessUserID, err)
+		}
+	}
+	return sub
+}
+
+// serverID is the derived id for a node URL, which is what an entry references.
+func (h *harness) serverID(rawURL string) string {
+	h.t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		h.t.Fatalf("parse %q: %v", rawURL, err)
+	}
+	srv, ok := h.cfg.LookupByOrigin(config.NormalizeOrigin(u.Scheme, u.Host))
+	if !ok {
+		h.t.Fatalf("%s is not a configured server", rawURL)
+	}
+	return srv.ID
 }
