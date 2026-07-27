@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Navigate, useParams } from "react-router";
 import { Boundary } from "../components/Boundary";
 import { ErrorState } from "../components/ErrorState";
+import { ServerTitle } from "../components/ServerTitle";
 import {
   Badge,
   Banner,
@@ -23,7 +24,13 @@ import {
   useUsers,
 } from "../queries/hooks";
 import { useReloadProblem } from "../queries/reloadWatch";
-import { formatBytes, formatRelative, hasV2RayAPI, quotaState, userState } from "../lib/format";
+import {
+  formatBytes,
+  formatRelative,
+  hasV2RayAPI,
+  quotaState,
+  userState,
+} from "../lib/format";
 import type { Server, VlessUser } from "../api/types";
 
 export function ServerPage() {
@@ -78,7 +85,7 @@ function ServerDetail({ server }: { server: Server }) {
   return (
     <>
       <PageHeader
-        title={info.host}
+        title={<ServerTitle info={info} />}
         subtitle={`:${info.port} · SNI ${info.sni} · ${info.flow || "no flow"}`}
         actions={<Button variant="primary" onClick={() => setCreating(true)}>Add user</Button>}
       />

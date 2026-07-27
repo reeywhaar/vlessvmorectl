@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { Boundary } from "../components/Boundary";
 import { ErrorState } from "../components/ErrorState";
+import { ServerTitle } from "../components/ServerTitle";
 import { Badge, Card, EmptyState, PageHeader, Skeleton, StatTile } from "../components/ui";
 import { useServerInfo, useServerStatus, useServers, useUsers } from "../queries/hooks";
 import { formatBytes, hasV2RayAPI, userState } from "../lib/format";
@@ -81,16 +82,14 @@ function ServerCard({ server }: { server: Server }) {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          {/* The node's own /api/server has no name field even though its config has one,
-              so its host is the label. */}
           <Link
             to={`/servers/${server.id}`}
-            className="block truncate font-semibold hover:underline"
+            className="block min-w-0 font-semibold hover:underline"
           >
-            {info.host}
+            <ServerTitle info={info} />
           </Link>
           <p className="mt-0.5 truncate text-xs text-muted">
-            :{info.port} · {info.sni}
+            :{info.port} · SNI {info.sni}
           </p>
         </div>
         {status.sing_box.running ? (

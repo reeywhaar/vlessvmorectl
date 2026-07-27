@@ -74,6 +74,23 @@ export function formatLocalHour(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric" });
 }
 
+/**
+ * What to call a node.
+ *
+ * Its configured `name` when it has one, its hostname otherwise. vlessvmore omits the
+ * field rather than sending an empty string, but `||` covers both — an operator who sets
+ * `"name": ""` means "no name", not "a nameless label".
+ */
+export function serverLabel(info: { name?: string; host: string }): string {
+  return info.name?.trim() || info.host;
+}
+
+/** Whether serverLabel returned something other than the hostname, i.e. whether the host
+ *  still needs showing somewhere. */
+export function hasServerName(info: { name?: string; host: string }): boolean {
+  return serverLabel(info) !== info.host;
+}
+
 export type UserState =
   | { kind: "active"; label: "Active" }
   | { kind: "disabled"; label: "Disabled" }

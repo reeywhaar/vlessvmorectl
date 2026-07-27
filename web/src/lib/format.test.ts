@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, hasV2RayAPI, parseBytes, quotaState, userState } from "./format";
+import {
+  formatBytes,
+  hasServerName,
+  hasV2RayAPI,
+  parseBytes,
+  quotaState,
+  serverLabel,
+  userState,
+} from "./format";
 import type { VlessUser } from "../api/types";
 
 function user(over: Partial<VlessUser> = {}): VlessUser {
@@ -127,5 +135,29 @@ describe("hasV2RayAPI", () => {
     expect(hasV2RayAPI("sing-box version 1.13.14\nTags: with_utls,with_v2ray_api")).toBe(true);
     expect(hasV2RayAPI("sing-box version 1.13.14\nTags: with_utls")).toBe(false);
     expect(hasV2RayAPI(undefined)).toBeNull();
+  });
+});
+
+describe("serverLabel", () => {
+  /**
+   * vlessvmore tags `name` omitempty, so an unnamed node simply has no field. The
+   * fallback is what keeps every node identifiable rather than blank.
+   */
+  it("prefers the configured name and falls back to the host", () => {
+    expect(serverLabel({ name: "Amsterdam", host: "vpn-nl.example.com" })).toBe("Amsterdam");
+    expect(serverLabel({ host: "vpn-nl.example.com" })).toBe("vpn-nl.example.com");
+  });
+
+  it("treats an empty or blank name as unset", () => {
+    expect(serverLabel({ name: "", host: "vpn.example.com" })).toBe("vpn.example.com");
+    expect(serverLabel({ name: "   ", host: "vpn.example.com" })).toBe("vpn.example.com");
+  });
+
+  /** Drives whether the host is worth printing alongside: when it is already the title,
+   *  repeating it reads as a rendering fault. */
+  it("reports whether the label differs from the host", () => {
+    expect(hasServerName({ name: "Amsterdam", host: "vpn-nl.example.com" })).toBe(true);
+    expect(hasServerName({ host: "vpn-nl.example.com" })).toBe(false);
+    expect(hasServerName({ name: "  ", host: "vpn-nl.example.com" })).toBe(false);
   });
 });

@@ -8,8 +8,7 @@ import type { Server, ServerInfo } from "../types";
  * nodes exist.
  *
  * Read-only: API.md is explicit that there is no PATCH here, because config.json is
- * operator input. Note also that the response has no `name` field even though the node's
- * config has one, so the panel labels a node by its `host`.
+ * operator input.
  */
 export function getServer(server: Server) {
   return createApiDispatcherAction((d) =>

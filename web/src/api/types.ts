@@ -79,6 +79,14 @@ export interface ServerStatus {
 }
 
 export interface ServerInfo {
+  /**
+   * The operator's label for this node, from its config.json.
+   *
+   * Absent when unset, which is not the same as empty — vlessvmore tags it `omitempty`,
+   * and a node with no name configured leaves clients showing the user's own name
+   * instead. Use serverLabel() rather than reading this directly.
+   */
+  name?: string;
   host: string;
   port: number;
   sni: string;
