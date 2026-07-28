@@ -502,12 +502,31 @@ export function Dialog({
       }}
       className={cx(
         "bg-card text-ink backdrop:bg-black/55",
+        /*
+          dvh, not h-full and not vh.
+
+          `h-full` was the original, and on iOS Safari it does not resolve to a definite
+          height for an element in the top layer — so the flex child below never got one
+          either, its `overflow-y: auto` never engaged, and the content simply spilled out
+          past the bottom of the dialog box and painted under the backdrop. The symptom is
+          a drawer that looks cut in half with the rest of its form ghosted beneath it.
+
+          `vh` would swap that for a subtler version of the same thing: on iOS it is the
+          *large* viewport, measured as though the address bar were hidden, so the last
+          screenful sits under the toolbar and cannot be scrolled to. `dvh` tracks the
+          visible area as the toolbar collapses, which is the only one of the three that
+          is a definite height and the right one.
+        */
         side
-          ? "ml-auto mr-0 h-full max-h-none w-full max-w-2xl rounded-none border-l border-line"
-          : "m-auto w-full max-w-lg rounded-[14px] border border-line",
+          ? "ml-auto mr-0 h-dvh max-h-dvh w-full max-w-2xl rounded-none border-l border-line"
+          : // Centred dialogs size to their content, up to a bound — the share page's
+            // connection details are taller than a small phone.
+            "m-auto max-h-[85dvh] w-full max-w-lg rounded-[14px] border border-line",
       )}
     >
-      <div className={cx("flex h-full flex-col", side && "max-h-screen")}>
+      {/* max-h-dvh rather than max-h-screen, for the reason above: on iOS `screen` is
+          100vh, which is taller than what is actually visible. */}
+      <div className={cx("flex flex-col", side ? "h-full max-h-dvh" : "max-h-[85dvh]")}>
         <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>
           <Button variant="ghost" onClick={onClose} aria-label="Close">
