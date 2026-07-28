@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { Boundary } from "../../components/Boundary";
 import { ErrorState } from "../../components/ErrorState";
 import {
@@ -282,7 +283,22 @@ function EntryRow({ subscriberId, resolved }: { subscriberId: string; resolved: 
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
-            {server ? <NodeName server={server} /> : "Unknown server"}
+            {/*
+              Straight to the account's own drawer, which is where every question this row
+              raises gets answered — the quota, the traffic history, the link to resend.
+              Only when the server is still configured: an orphaned entry has nowhere to go,
+              and a link that navigates to a redirect is worse than plain text.
+            */}
+            {server ? (
+              <Link
+                to={`/servers/${server.id}?user=${encodeURIComponent(entry.vless_user_id)}`}
+                className="underline decoration-line underline-offset-4 hover:decoration-ink"
+              >
+                <NodeName server={server} />
+              </Link>
+            ) : (
+              "Unknown server"
+            )}
           </p>
           <p className="truncate text-xs text-muted">
             {user ? user.name : entry.vless_user_id}

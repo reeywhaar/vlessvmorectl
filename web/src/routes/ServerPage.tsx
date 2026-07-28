@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Navigate, useParams } from "react-router";
+import { Navigate, useParams, useSearchParams } from "react-router";
 import { Boundary } from "../components/Boundary";
 import { ErrorState } from "../components/ErrorState";
 import { ServerTitle } from "../components/ServerTitle";
@@ -63,7 +63,32 @@ function ServerDetail({ server }: { server: Server }) {
 
   const [filter, setFilter] = useState("");
   const [creating, setCreating] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+
+  /**
+   * Which user's drawer is open, kept in the URL rather than in state.
+   *
+   * It started as useState, and moving it buys three things that state cannot. The
+   * subscriber drawer can link straight to an account — that is what prompted this. Back
+   * closes the drawer instead of leaving the page, which is what a phone user expects and
+   * what they will press. And an operator can paste "the one that is over quota" to a
+   * colleague and have it open where they left it.
+   *
+   * Opening pushes so Back has something to return to; closing replaces, so the button
+   * does not leave a trail of empty entries behind it.
+   */
+  const [params, setParams] = useSearchParams();
+  const selected = params.get("user");
+
+  const setSelected = (id: string | null, replace = false) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set("user", id);
+        else next.delete("user");
+        return next;
+      },
+      { replace },
+    );
 
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -164,7 +189,7 @@ function ServerDetail({ server }: { server: Server }) {
         <UserDrawer
           server={server}
           user={users.find((u) => u.id === selected) ?? null}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelected(null, true)}
         />
       ) : null}
     </>
