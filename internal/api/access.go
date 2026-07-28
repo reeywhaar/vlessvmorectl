@@ -111,20 +111,13 @@ type accessUsage struct {
 
 // accessHandler serves a subscriber's own list of accounts, with no session.
 //
-// # Why this is not a second /api/proxy
+// This is not a second /api/proxy. That endpoint takes a URL from a client and needs an
+// origin and path allowlist to stay safe; here the caller contributes zero bytes to any
+// outbound URL. Scheme, host, path and query all come from config and from
+// subscribers.json. The token selects a record; it cannot reach the wire.
 //
-// proxyHandler is, in its own words, an authenticated SSRF gadget: it takes a URL from a
-// client and fetches it with a credential attached, and what holds it in check is an
-// origin allowlist, a path allowlist and a session. This endpoint has none of those
-// problems to solve, because **the caller contributes zero bytes to any outbound URL**.
-// The scheme, host, path and query of every upstream request are built here from
-// server-side state alone: a config.Server looked up by an id that came out of
-// subscribers.json, and a vless_user_id that an authenticated operator put there. The
-// token in the URL selects a *record*; it cannot reach the wire.
-//
-// That is the invariant to preserve if this function is ever edited. It is pinned by a
-// test that replays the request with ?url=, extra path segments and a forged Host, and
-// asserts the upstream saw only the configured node.
+// That is the invariant to preserve, and a test pins it by replaying the request with
+// ?url=, extra path segments and a forged Host.
 func (s *Server) accessHandler(w http.ResponseWriter, r *http.Request) {
 	// Everything here is a capability bundle. Never a shared cache, matching the reason
 	// the proxy sets the same header.

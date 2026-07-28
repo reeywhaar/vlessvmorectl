@@ -16,24 +16,12 @@ type State =
 /**
  * Everything a person can reach with a share link.
  *
- * # It does not poll, and that is deliberate
+ * Does not poll: the endpoint has no session and fans out to one call per account, so a
+ * tab left open would be permanent unauthenticated load on every node. One fetch, a
+ * stated age, and a Refresh button.
  *
- * The panel's query client refetches every ten seconds, and every one of the reasons for
- * that is wrong here. This endpoint has no session behind it and fans out server-side to
- * one call per account per load; a link left open on a screen would be permanent,
- * unauthenticated, unattributable load on every node this panel manages. And the reader
- * gains nothing from it — they came to copy a link once, not to watch a number.
- *
- * So: one fetch, a stated age, and a Refresh button. Saying "updated 4 minutes ago" out
- * loud is the honest version of not being live, and it is more useful than a figure that
- * silently claims to be current.
- *
- * # No Shell, no nav, no sign-out
- *
- * Shell carries an operator's chrome. On a page with no session those controls are at
- * best confusing and at worst an invitation to go poking at a panel this person has no
- * business in. A visitor here has one job — get a link onto their VPN client — and
- * everything that is not that is in the way.
+ * No Shell either — its nav and sign-out belong to an operator, not to someone here to
+ * copy a link.
  */
 export function AccessPage({ token }: { token: string }) {
   const [state, setState] = useState<State>({ status: "loading" });

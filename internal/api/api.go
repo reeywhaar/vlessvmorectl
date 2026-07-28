@@ -278,23 +278,12 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 
 // redactPath replaces a subscriber's share token with a fingerprint.
 //
-// /access/{token} and /api/access/{token} carry a credential in a path segment, and the
-// line above prints the path of every 4xx and 5xx — which is precisely the set of
-// requests where the token is most likely to be one somebody mistyped, one that has been
-// disabled, or one being hammered. Without this, every such request writes a working
-// capability into the container log, and from there into wherever logs are shipped, for
-// as long as retention says.
+// The line above prints the path of every 4xx and 5xx, and /access/{token} carries a
+// credential in a path segment — so without this, a mistyped or disabled link writes a
+// working capability into the log. An operator holding the token can derive the same
+// eight characters, so the line stays useful. Same shape as store.HashFingerprint.
 //
-// The fingerprint keeps the line useful rather than merely safe: an operator holding the
-// token can derive the same eight characters, so "is Ivan's link reaching us?" and "is
-// one dead link being retried a thousand times?" are still answerable, while the log is
-// worth nothing to whoever reads it later. Same idea, and the same shape, as
-// store.HashFingerprint.
-//
-// Note what this does not solve: the reverse proxy in front of this service logs the
-// full request line, so a share token will appear in Caddy's access log. That is the
-// standing cost of capability URLs — the node's own /sub/ and /show/ URLs have it too —
-// and it belongs in the deployment documentation rather than in a function here.
+// Not solved here: the reverse proxy logs the full request line. See the README.
 func redactPath(p string) string {
 	for _, prefix := range [...]string{"/api/access/", "/access/"} {
 		rest, ok := strings.CutPrefix(p, prefix)

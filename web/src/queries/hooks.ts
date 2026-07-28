@@ -118,17 +118,10 @@ export interface NodeUsers {
 /**
  * Every node's user list, tolerant of any of them failing.
  *
- * There used to be a useAllUsers here built on useSuspenseQueries. It was removed rather
- * than kept alongside this, because a suspense query always throws, and the shorter name
- * was a trap: one node with a rejected token would blank an entire page whose own data
- * came from this panel and was perfectly fine.
- *
- * That is exactly the subscriber screens' situation. The node data here is *enrichment* —
- * an account's name and a status badge next to a reference the panel already holds — so a
- * failure has to degrade one group of rows and say so, not take the page with it.
- *
- * Shares qk.users(serverId) with useUsers, so arriving from the overview costs nothing:
- * the ten-second poll has already warmed exactly these entries.
+ * Not useSuspenseQueries: node data on the subscriber screens is enrichment beside data
+ * the panel already holds, so one unreachable node must degrade its own rows rather than
+ * blank the page. Shares qk.users(serverId) with useUsers, so arriving from the overview
+ * costs no requests.
  */
 export function useUsersByServer(servers: Server[]): NodeUsers[] {
   const callApi = useApiCall();

@@ -125,20 +125,15 @@ func limiterKey(username string) string {
 
 // Share-link throttling.
 //
-// The same two-bucket shape as loginLimiter, the same reasoning, a different scarce
-// resource. There it was 250ms of bcrypt on this box; here it is somebody else's VPS,
-// because one GET of a share link becomes roughly two credentialed calls per attached
-// account against nodes that are, by design, small.
+// Same two-bucket shape as loginLimiter, different scarce resource: one GET of a share
+// link becomes roughly two credentialed calls per attached account against small nodes.
 //
-// What this is *not* for is worth stating, because it looks like a guessing defence and
-// is not one. A share token is 160 bits; brute force is not reachable with or without a
-// limiter, and an unknown token is answered from memory before any node is contacted, so
-// spraying tokens costs the nodes nothing. This exists purely as an amplification ceiling
-// on somebody who already holds a working link and is refreshing it in a loop.
+// Not a guessing defence. A token is 160 bits, and an unknown one is answered from memory
+// before any node is contacted, so spraying costs the nodes nothing. This is an
+// amplification ceiling on somebody who already holds a working link.
 //
-// The global cap sits far above the per-link one, for the reason spelled out above
-// loginLimiter: set them close and a single caller denies service to every other
-// subscriber by draining the shared bucket.
+// Global sits far above per-link, for the reason above loginLimiter: set them close and
+// one caller denies service to every other subscriber.
 const (
 	accessPerTokenRequests = 20  // per minute: a page load plus impatient refreshes
 	accessGlobalRequests   = 200 // per minute, every link together

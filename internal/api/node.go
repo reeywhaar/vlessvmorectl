@@ -5,27 +5,14 @@ import (
 	"time"
 )
 
-// Partial Go models of vlessvmore's wire format.
+// Partial Go models of vlessvmore's wire format, with two rules that are the opposite of
+// how this repo reads its own files.
 //
-// Until the access page existed, this service never parsed a node's JSON at all — the
-// proxy passes bytes through verbatim and the SPA does the reading. The access endpoint
-// has to assemble a projection server-side, so it needs types. These are them, and they
-// come with two rules that are the opposite of how this repo reads its own files.
+// Unknown fields are ignored: this is another project's API on its own release schedule,
+// and a field it adds must not turn every subscriber's page into a 500.
 //
-// # Unknown fields are ignored
-//
-// store.readJSON sets DisallowUnknownFields because those files are ours and a
-// misspelled key in one is a bug we want to hear about at startup. This is somebody
-// else's API, living in another repository on its own release schedule. A node that
-// gains a field in its next version must not turn every subscriber's page into a 500, so
-// decodeNode uses a plain json.Unmarshal.
-//
-// # Only what is rendered is modelled
-//
-// Keeping the subset small is the other half of not drifting: a field that is not here
-// cannot be quietly depended upon, and cannot leak into a projection by accident. Note
-// in particular that nodeUser has no sub_token field even though the node sends one —
-// this process has no use for it, so it does not decode it.
+// Only what is rendered is modelled, so a field that is not here cannot be depended upon
+// or leak into a projection. nodeUser has no sub_token even though the node sends one.
 func decodeNode(b []byte, dst any) error { return json.Unmarshal(b, dst) }
 
 // nodeUser is GET /api/users/{id}.

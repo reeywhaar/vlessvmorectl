@@ -65,16 +65,11 @@ function ServerDetail({ server }: { server: Server }) {
   const [creating, setCreating] = useState(false);
 
   /**
-   * Which user's drawer is open, kept in the URL rather than in state.
+   * Which user's drawer is open, kept in the URL so it can be linked to, pasted, and
+   * closed with Back.
    *
-   * It started as useState, and moving it buys three things that state cannot. The
-   * subscriber drawer can link straight to an account — that is what prompted this. Back
-   * closes the drawer instead of leaving the page, which is what a phone user expects and
-   * what they will press. And an operator can paste "the one that is over quota" to a
-   * colleague and have it open where they left it.
-   *
-   * Opening pushes so Back has something to return to; closing replaces, so the button
-   * does not leave a trail of empty entries behind it.
+   * Opening pushes so Back has somewhere to return to; closing replaces, so the button
+   * leaves no trail of empty entries.
    */
   const [params, setParams] = useSearchParams();
   const selected = params.get("user");
@@ -263,9 +258,5 @@ function UserRow({ user, onSelect }: { user: VlessUser; onSelect: (id: string) =
   );
 }
 
-// QuotaMeter used to live here and now lives in components/ui.tsx.
-//
-// It moved because the public share page needs it, and importing it from this module
-// would have pulled UserDrawer and CreateUserDialog — the entire operator UI — into the
-// public chunk through this file's static imports, silently undoing the code splitting
-// that keeps a subscriber on mobile data from downloading a panel they cannot use.
+// QuotaMeter lives in components/ui.tsx: the share page draws one, and importing it from
+// here would pull UserDrawer and CreateUserDialog into the public chunk.

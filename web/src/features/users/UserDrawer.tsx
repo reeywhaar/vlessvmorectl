@@ -298,12 +298,8 @@ function Credentials({
   /**
    * Which code is on screen, if any.
    *
-   * The subscription QR used to be drawn here unconditionally, at scanning size, next to
-   * the credentials. It is behind a button now for the same reason the subscriber's page
-   * hides its own: a QR is a credential in the one form a bystander can capture without
-   * touching the device, and an operator opening this drawer is very often screen-sharing
-   * or sitting in an office. Blurring the URLs beside a live QR of the same URL was a
-   * precaution the layout undid.
+   * Behind a button because a QR is the one form of credential a bystander can capture
+   * without touching the device, and this drawer is often open while screen-sharing.
    */
   const [qr, setQr] = useState<{ title: string; qr: QRMatrix; caption: string } | null>(null);
 

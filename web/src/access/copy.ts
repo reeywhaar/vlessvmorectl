@@ -3,17 +3,11 @@ import type { Tone } from "../components/ui";
 import type { AccessEntry } from "./types";
 
 /**
- * What to tell the person reading their own share page.
+ * Subscriber-facing wording for a status.
  *
- * The *classification* is not decided here — that is userState in lib/format.ts, and it
- * deliberately stays shared, because a page that disagreed with the panel about who is
- * over quota would be the worst bug this feature could have.
- *
- * What is decided here is the wording, and it is a genuinely different job. userState
- * returns operator vocabulary: "Over quota", "Disabled". Those are accurate and useless
- * to somebody who does not run this panel — "Disabled" reads as an accusation, and "Over
- * quota" as jargon. Every string below answers the two questions the reader actually has:
- * what is wrong, and what do I do about it.
+ * The classification stays in userState — the page must not disagree with the panel about
+ * who is over quota. Only the words differ: userState returns operator vocabulary ("Over
+ * quota", "Disabled") that is accurate and useless to the reader.
  *
  * Nothing here may mention a token, a node, a panel or a proxy. There is a test.
  */

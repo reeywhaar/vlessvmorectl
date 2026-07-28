@@ -189,16 +189,10 @@ export function EmptyState({ title, children }: { title: ReactNode; children?: R
 /**
  * Copy to the clipboard, or say so when the browser will not let us.
  *
- * The guard around navigator.clipboard is load-bearing, not defensive habit. That API is
- * undefined outside a secure context — plain HTTP on anything but localhost — and an
- * error thrown in a React event handler is *not* caught by an error boundary. Unguarded,
- * the whole failure presents as a button labelled "Copy" that does nothing, for ever,
- * with only a console message to explain it.
- *
- * In the panel that is an annoyance. On the public share page it lands on people reaching
- * a plain-HTTP deployment from whatever browser their phone came with, and copying the
- * link is the only thing they came to do — so the fallback selects the text instead and
- * tells them to copy it themselves.
+ * navigator.clipboard is undefined outside a secure context, and an error thrown in a
+ * React event handler is not caught by an error boundary — unguarded, the failure is a
+ * button that does nothing for ever with only a console message. The fallback selects the
+ * text instead.
  */
 export function CopyButton({
   value,
@@ -335,12 +329,8 @@ export function CheckIcon() {
 }
 
 /**
- * Sun and moon, as paths rather than ☀ and ☾.
- *
- * Those two code points have no emoji presentation in most fonts, so a browser falls back
- * to their *text* form — on Firefox the sun renders as a small asterisk, which reads as a
- * footnote marker rather than a theme toggle. Which glyph you get depends on the font
- * stack, the platform and the browser, and none of those are things this project controls.
+ * Sun and moon as paths: ☀ and ☾ have no emoji presentation in most fonts, so browsers
+ * fall back to the text form — on Firefox the sun is a small asterisk.
  */
 export function SunIcon() {
   return (
@@ -373,10 +363,8 @@ export function QrIcon() {
 /**
  * Selects the on-screen text so the reader can copy it by hand.
  *
- * Finds the element by its content rather than by a ref, because CopyButton is used
- * standalone as well as inside SecretField and has no reliable handle on the node showing
- * the value. Best-effort by design: if it finds nothing, the button has still changed its
- * label to say the automatic path did not work.
+ * By content rather than by ref: CopyButton is also used standalone and has no handle on
+ * the node showing the value. Best-effort — the label has already changed either way.
  */
 function selectNearbyValue(value: string) {
   if (typeof document === "undefined") return;
@@ -399,10 +387,8 @@ function selectNearbyValue(value: string) {
 /**
  * An anchor wearing Button's clothes.
  *
- * A real <a>, not a button with an onClick, because the share page's primary action opens
- * a node's install page and every one of long-press, middle-click, "open in new tab" and
- * "copy link address" has to work there. Those are the affordances somebody reaches for
- * when they are trying to move a link between two devices, which is the entire situation.
+ * A real <a> so long-press, middle-click, open-in-new-tab and copy-link-address work —
+ * the affordances for moving a link between two devices.
  */
 export function ButtonLink({
   variant = "secondary",
@@ -547,19 +533,10 @@ export function Dialog({
       className={cx(
         "bg-card text-ink backdrop:bg-black/55",
         /*
-          dvh, not h-full and not vh.
-
-          `h-full` was the original, and on iOS Safari it does not resolve to a definite
-          height for an element in the top layer — so the flex child below never got one
-          either, its `overflow-y: auto` never engaged, and the content simply spilled out
-          past the bottom of the dialog box and painted under the backdrop. The symptom is
-          a drawer that looks cut in half with the rest of its form ghosted beneath it.
-
-          `vh` would swap that for a subtler version of the same thing: on iOS it is the
-          *large* viewport, measured as though the address bar were hidden, so the last
-          screenful sits under the toolbar and cannot be scrolled to. `dvh` tracks the
-          visible area as the toolbar collapses, which is the only one of the three that
-          is a definite height and the right one.
+          dvh, not h-full and not vh. On iOS Safari `h-full` does not resolve to a definite
+          height in the top layer, so the flex child's overflow-y never engages and content
+          spills past the dialog. `vh` is the large viewport there, putting the last
+          screenful under the toolbar. Only dvh is both definite and visible-area.
         */
         side
           ? "ml-auto mr-0 h-dvh max-h-dvh w-full max-w-2xl rounded-none border-l border-line"

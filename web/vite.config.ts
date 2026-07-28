@@ -13,25 +13,10 @@ export default defineConfig({
     /**
      * Two entries, two islands: the operator's panel and the subscriber's share page.
      *
-     * They are separate builds rather than two lazy chunks of one app, and the reason is
-     * that a lazy chunk is a bandwidth optimisation, not a boundary. With one entry, the
-     * whole panel — every page, every mutation, every internal API action — is part of
-     * the same module graph the share page's HTML pulls from, and keeping operator code
-     * out of a stranger's browser depends on nobody ever writing the wrong import.
-     *
-     * With two entries it is structural. access.html reaches src/access.tsx and whatever
-     * that transitively imports, and nothing else can arrive by accident: an import of
-     * UserDrawer from the access island would show up as a size jump in a bundle that
-     * should never contain one.
-     *
-     * What this does *not* do, and should not be mistaken for: it does not make the panel
-     * bundle unreachable. Static assets on a public origin can be fetched by anyone who
-     * knows the filename, and index.html names them. The point is what a subscriber's
-     * browser is *served*, not what a determined reader can go and get.
-     *
-     * Genuinely shared, dependency-free leaf modules — the UI kit, the formatters, the
-     * QR renderer — do end up in both, as a shared chunk or duplicated. That is correct:
-     * they are shared by design, and none of them knows anything about operating a node.
+     * Separate builds rather than lazy chunks, because a chunk is a bandwidth
+     * optimisation, not a boundary — with one entry, keeping operator code out of a
+     * stranger's browser depends on nobody writing the wrong import. It does not make the
+     * panel bundle unreachable; it decides what a subscriber is served.
      */
     rollupOptions: {
       input: {

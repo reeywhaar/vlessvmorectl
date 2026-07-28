@@ -22,15 +22,9 @@ import type {
 /**
  * A stand-in backend, shared by the component tests.
  *
- * A hand-rolled Transport rather than msw, matching what App.test.tsx already did: msw is
- * in devDependencies with no usages anywhere, and one fake object is less machinery than a
- * service worker for a suite that never exercises the network itself. Everything above
- * Transport — the dispatcher, every hook, every component — is unchanged by this, which is
- * exactly the seam transport.ts was written to provide.
- *
- * It records every request, so a test can assert what was *not* called as easily as what
- * was. That matters more than it sounds: several of the properties worth protecting here
- * are absences.
+ * A hand-rolled Transport rather than msw — nothing here exercises the real network, and
+ * transport.ts exists precisely as this seam. It records every request, so a test can
+ * assert what was *not* called; several properties worth protecting here are absences.
  */
 
 export const json = (body: unknown, status = 200) =>
