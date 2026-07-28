@@ -413,10 +413,20 @@ export function SecretField({
   label,
   value,
   masked = true,
+  action,
 }: {
   label: string;
   value: string;
   masked?: boolean;
+  /**
+   * An extra control beside Copy — in practice the button that puts this value on screen
+   * as a QR code.
+   *
+   * A slot rather than a `qr` prop, because this component has no business knowing what a
+   * QR is. It holds a string and hides it; what else can be done with that string is the
+   * caller's concern.
+   */
+  action?: ReactNode;
 }) {
   const [revealed, setRevealed] = useState(false);
   const shown = !masked || revealed;
@@ -443,6 +453,7 @@ export function SecretField({
           {value}
         </code>
         <CopyButton value={value} />
+        {action}
       </div>
     </div>
   );

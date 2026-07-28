@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo, useState, useTransition } from "react";
 import { Boundary } from "../../components/Boundary";
 import { ErrorState } from "../../components/ErrorState";
-import { QrMatrix } from "../../components/QrMatrix";
+import { QrDialog } from "../../components/QrDialog";
 import { UserSubscribersSection } from "./UserSubscribersSection";
 import {
   Badge,
@@ -10,6 +10,8 @@ import {
   ConfirmDelete,
   Dialog,
   Field,
+  IconButton,
+  QrIcon,
   Input,
   SecretField,
   Skeleton,
@@ -29,7 +31,7 @@ import { Tri } from "../../api/patch";
 import { PRESETS, snapRange, type Preset, type SnappedRange } from "../../lib/range";
 import { formatBytes, formatDateTime, parseBytes, quotaState, userState } from "../../lib/format";
 import { zeroFill } from "../usage/series";
-import type { Server, VlessUser } from "../../api/types";
+import type { QRMatrix, Server, VlessUser } from "../../api/types";
 
 // recharts is ~90 kB and only this drawer needs it, so login and the overview never pay
 // for it.
@@ -293,91 +295,101 @@ function Credentials({
   const { data: link } = useUserLink(server, user.id);
   const [confirmRotate, setConfirmRotate] = useState(false);
 
+  /**
+   * Which code is on screen, if any.
+   *
+   * The subscription QR used to be drawn here unconditionally, at scanning size, next to
+   * the credentials. It is behind a button now for the same reason the subscriber's page
+   * hides its own: a QR is a credential in the one form a bystander can capture without
+   * touching the device, and an operator opening this drawer is very often screen-sharing
+   * or sitting in an office. Blurring the URLs beside a live QR of the same URL was a
+   * precaution the layout undid.
+   */
+  const [qr, setQr] = useState<{ title: string; qr: QRMatrix; caption: string } | null>(null);
+
+  const qrButton = (title: string, matrix: QRMatrix | undefined, caption: string) =>
+    matrix ? (
+      <IconButton
+        label={`Show ${title.toLowerCase()} as a QR code`}
+        onClick={() => setQr({ title, qr: matrix, caption })}
+      >
+        <QrIcon />
+      </IconButton>
+    ) : undefined;
+
   // The subscription is the better thing to scan: the client re-fetches it every 24
   // hours so config and key changes propagate, and its response headers are what make
   // the client show remaining traffic and an expiry date. The vless:// URI is the
   // fallback for clients that do not do subscriptions — and it is a much denser code,
   // ~250 characters against ~40.
-  const codes = [
-    link.subscription_qr && {
-      key: "sub" as const,
-      label: "Subscription",
-      qr: link.subscription_qr,
-      caption: "Auto-updates, and shows quota and expiry in the client. Scan this one.",
-    },
-    link.qr && {
-      key: "vless" as const,
-      label: "vless://",
-      qr: link.qr,
-      caption: "A one-off config. Does not update, and carries no quota information.",
-    },
-  ].filter((c) => c !== undefined);
-
-  const [shown, setShown] = useState<"sub" | "vless">("sub");
-  const active = codes.find((c) => c.key === shown) ?? codes[0];
-
   return (
     <section>
       <h3 className="mb-3 font-semibold">Connection</h3>
-      <div className="flex flex-col gap-4 sm:flex-row">
-        {active ? (
-          <div className="shrink-0">
-            <QrMatrix qr={active.qr} label={`${active.label} QR code for ${user.name}`} />
-            {codes.length > 1 ? (
-              <div className="mt-2 flex gap-1">
-                {codes.map((c) => (
-                  <button
-                    key={c.key}
-                    onClick={() => setShown(c.key)}
-                    className={cx(
-                      "rounded-lg px-2 py-1 text-xs",
-                      c.key === active.key
-                        ? "bg-accent text-accent-ink"
-                        : "text-muted hover:bg-line",
-                    )}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <p className="mt-2 max-w-[220px] text-xs text-muted">{active.caption}</p>
-          </div>
+      <div className="space-y-3">
+        {link.subscription_url ? (
+          <SecretField
+            label="Subscription URL"
+            value={link.subscription_url}
+            action={qrButton(
+              "Subscription URL",
+              link.subscription_qr,
+              "Auto-updates, and shows quota and expiry in the client. This is the one to scan.",
+            )}
+          />
         ) : null}
 
-        <div className="min-w-0 flex-1 space-y-3">
-          <SecretField label="vless:// link" value={link.link} />
-          {link.subscription_url ? (
-            <SecretField label="Subscription URL" value={link.subscription_url} />
-          ) : null}
-          {link.install_url ? (
-            <SecretField label="Install page" value={link.install_url} />
-          ) : null}
+        <SecretField
+          label="vless:// link"
+          value={link.link}
+          action={qrButton(
+            "vless:// link",
+            link.qr,
+            "A one-off config. Does not update, and carries no quota information.",
+          )}
+        />
 
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-line p-3">
-            <p className="text-xs text-muted">
-              Rotating issues a new subscription URL and kills the old one immediately. The
-              UUID is untouched, so nobody is disconnected.
-            </p>
-            <Button onClick={() => setConfirmRotate(true)} disabled={rotating}>
-              {rotating ? "Rotating…" : "Rotate"}
-            </Button>
-          </div>
+        {link.install_url ? (
+          <SecretField label="Install page" value={link.install_url} />
+        ) : null}
 
-          {/*
-            Stays up until the drawer closes, because the thing that goes wrong after a
-            rotation is silent: the client keeps connecting on its stored config, so
-            nobody notices that its subscription refresh has been 404ing until a config
-            change fails to reach them weeks later.
-          */}
-          {rotated ? (
-            <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
-              Rotated. Any link you sent before now returns 404 — send {user.name} the new
-              subscription URL above.
-            </p>
-          ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line p-3">
+          <p className="min-w-0 flex-1 text-xs text-muted">
+            Rotating issues a new subscription URL and kills the old one immediately. The
+            UUID is untouched, so nobody is disconnected.
+          </p>
+          <Button onClick={() => setConfirmRotate(true)} disabled={rotating}>
+            {rotating ? "Rotating…" : "Rotate"}
+          </Button>
         </div>
+
+        {/*
+          Stays up until the drawer closes, because the thing that goes wrong after a
+          rotation is silent: the client keeps connecting on its stored config, so
+          nobody notices that its subscription refresh has been 404ing until a config
+          change fails to reach them weeks later.
+        */}
+        {rotated ? (
+          <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
+            Rotated. Any link you sent before now returns 404 — send {user.name} the new
+            subscription URL above.
+          </p>
+        ) : null}
       </div>
+
+      {/*
+        A child of this section, so it comes after the drawer in document order: Dialog
+        resolves "innermost" by that when Escape is pressed, and a QR mounted elsewhere
+        would close the drawer behind it too.
+      */}
+      {qr ? (
+        <QrDialog
+          title={qr.title}
+          qr={qr.qr}
+          caption={qr.caption}
+          warning={`Anyone who can see this code can connect as ${user.name}.`}
+          onClose={() => setQr(null)}
+        />
+      ) : null}
 
       <Confirm
         open={confirmRotate}

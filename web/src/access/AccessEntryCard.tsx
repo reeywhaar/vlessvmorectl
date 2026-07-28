@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { QrMatrix } from "../components/QrMatrix";
+import { QrDialog } from "../components/QrDialog";
 import {
   Badge,
   ButtonLink,
@@ -14,6 +14,7 @@ import {
 } from "../components/ui";
 import { formatBytes, formatDateTime, quotaState } from "../lib/format";
 import { entryStatus } from "./copy";
+import type { QRMatrix } from "../api/types";
 import type { AccessEntry } from "./types";
 
 /**
@@ -241,14 +242,22 @@ function ConnectionDialog({
         this dialog down with it — the bug the "close only the topmost dialog" change
         exists to prevent.
       */}
-      {qr ? <QrDialog code={qr} onClose={() => setQr(null)} /> : null}
+      {qr ? (
+        <QrDialog
+          title={qr.title}
+          qr={qr.qr}
+          caption={qr.caption}
+          warning="Anyone who can see this code can use your connection. Close it once you have scanned it."
+          onClose={() => setQr(null)}
+        />
+      ) : null}
     </Dialog>
   );
 }
 
 interface Code {
   title: string;
-  qr: NonNullable<Extract<AccessEntry, { available: true }>["qr"]>;
+  qr: QRMatrix;
   caption: string;
 }
 
@@ -293,18 +302,3 @@ function CredentialRow({
   );
 }
 
-/** The QR itself, alone, and easy to dismiss. */
-function QrDialog({ code, onClose }: { code: Code; onClose: () => void }) {
-  return (
-    <Dialog open onClose={onClose} title={code.title}>
-      <div className="flex flex-col items-center gap-3">
-        <QrMatrix qr={code.qr} label={code.title} />
-        <p className="max-w-xs text-center text-xs text-muted">{code.caption}</p>
-        <p className="max-w-xs text-center text-xs text-warn">
-          Anyone who can see this code can use your connection. Close it once you have
-          scanned it.
-        </p>
-      </div>
-    </Dialog>
-  );
-}
