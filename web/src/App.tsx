@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { Boundary } from "./components/Boundary";
 import { ErrorState } from "./components/ErrorState";
-import { Button, Skeleton, cx } from "./components/ui";
+import { Button, MoonIcon, Skeleton, SunIcon, cx } from "./components/ui";
 import { LoginPage } from "./routes/LoginPage";
 import { OverviewPage } from "./routes/OverviewPage";
 import { ServerPage } from "./routes/ServerPage";
@@ -124,8 +124,12 @@ function Shell({
 
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden text-sm text-muted sm:inline">{username}</span>
-            <Button variant="ghost" onClick={toggle} aria-label="Toggle theme">
-              {theme === "dark" ? "☾" : "☀"}
+            <Button
+              variant="ghost"
+              onClick={toggle}
+              aria-label={theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
+            >
+              {theme === "dark" ? <MoonIcon /> : <SunIcon />}
             </Button>
             <Button
               onClick={() => logout.mutate(undefined, { onSuccess: onSignedOut })}

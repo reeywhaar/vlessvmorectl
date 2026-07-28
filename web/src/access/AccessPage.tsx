@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, EmptyState, Skeleton } from "../components/ui";
+import { Button, Card, EmptyState, MoonIcon, Skeleton, SunIcon } from "../components/ui";
 import { isVlessError, type VlessFailure } from "../api/errors";
 import { formatRelative } from "../lib/format";
 import { useTheme } from "../lib/theme";
@@ -136,8 +136,13 @@ function Chrome() {
       <div className="mx-auto flex max-w-3xl items-center gap-2 px-4 py-3">
         <img src="/favicon.svg" alt="" width={26} height={26} />
         <span className="font-semibold">Your VPN access</span>
-        <Button variant="ghost" className="ml-auto" onClick={toggle} aria-label="Toggle theme">
-          {theme === "dark" ? "☾" : "☀"}
+        <Button
+          variant="ghost"
+          className="ml-auto"
+          onClick={toggle}
+          aria-label={theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
+        >
+          {theme === "dark" ? <MoonIcon /> : <SunIcon />}
         </Button>
       </div>
     </header>
