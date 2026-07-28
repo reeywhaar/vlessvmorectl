@@ -517,28 +517,41 @@ function ExpirySection({
   return (
     <section>
       <h3 className="mb-3 font-semibold">Expiry</h3>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="flex-1">
+      {/*
+        Stacked below sm, rather than flex-wrap on one row.
+
+        Wrapping put the two buttons on a second line only *sometimes*, and on iOS Safari
+        not at all: input[type=date] there has an intrinsic width and ignores `w-full`
+        unless appearance is reset, so it overflowed its flex-1 label and the Set button
+        came to rest on top of it. An explicit column below sm is one rule instead of
+        three interacting ones.
+      */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <label className="min-w-0 sm:flex-1">
           <span className="mb-1 block text-sm">Expires (UTC)</span>
           <input
             type="date"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm"
+            // appearance-none is what makes the width rule above stick on iOS; without it
+            // the control sizes itself and the layout is at its mercy.
+            className="w-full min-w-0 appearance-none rounded-lg border border-line bg-bg px-3 py-2 text-sm"
           />
         </label>
         {/* Tri.set and Tri.clear rather than a value-or-null: an explicit null clears the
             expiry, an absent key leaves it alone, and the two are one keystroke apart. */}
-        <Button
-          variant="primary"
-          disabled={busy || !value || value === current}
-          onClick={() => onChange(Tri.set(new Date(`${value}T00:00:00Z`)))}
-        >
-          Set
-        </Button>
-        <Button disabled={busy || !user.expires_at} onClick={() => onChange(Tri.clear())}>
-          Never expire
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            variant="primary"
+            disabled={busy || !value || value === current}
+            onClick={() => onChange(Tri.set(new Date(`${value}T00:00:00Z`)))}
+          >
+            Set
+          </Button>
+          <Button disabled={busy || !user.expires_at} onClick={() => onChange(Tri.clear())}>
+            Never expire
+          </Button>
+        </div>
       </div>
     </section>
   );
