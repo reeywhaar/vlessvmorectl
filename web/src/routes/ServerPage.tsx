@@ -139,10 +139,13 @@ function ServerDetail({ server }: { server: Server }) {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by name or note"
-          className="max-w-xs"
+          className="min-w-0 max-w-xs"
           type="search"
         />
-        <span className="text-sm text-muted">
+        {/* shrink-0 and nowrap: the input is w-full up to max-w-xs, which on a 375px
+            screen leaves the count about twenty pixels and breaks "2 of 2" across two
+            lines. The count is three words; the input is the thing that should give. */}
+        <span className="shrink-0 whitespace-nowrap text-sm text-muted">
           {shown.length} of {users.length}
         </span>
       </div>
