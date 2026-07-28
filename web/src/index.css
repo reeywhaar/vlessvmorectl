@@ -33,9 +33,21 @@
 
 /* Dark is the default for this panel — it is a tool people leave open on a second
  * monitor. Both the media query and the explicit attribute are honoured, so a manual
- * toggle wins over the system preference in either direction. */
+ * toggle wins over the system preference in either direction.
+ *
+ * Both color-scheme declarations live out here, unlayered, and that is the whole point
+ * rather than an accident of formatting. Unlayered styles beat *any* cascade layer
+ * regardless of specificity, so the light one used to sit inside `@layer theme` where the
+ * unlayered dark default silently outranked it. The colours changed and color-scheme did
+ * not, which left every native control — checkboxes, date pickers, scrollbars — drawn by
+ * the browser in dark UA styling on a white page. The visible symptom was an unchecked
+ * checkbox rendering as a solid dark square. */
 :root {
   color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 @layer theme {
@@ -55,8 +67,8 @@
     --color-series-up: #d95926;
   }
 
+  /* color-scheme for this theme is set outside the layer; see the note above. */
   :root[data-theme="light"] {
-    color-scheme: light;
     --color-bg: #f7f7f9;
     --color-card: #ffffff;
     --color-ink: #16161a;
