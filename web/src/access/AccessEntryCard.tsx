@@ -4,12 +4,10 @@ import {
   Badge,
   ButtonLink,
   Card,
-  Dialog,
   IconButton,
   QrIcon,
   QuotaMeter,
   SecretField,
-  StatTile,
   cx,
 } from "../components/ui";
 import { formatBytes, formatDateTime, quotaState } from "../lib/format";
@@ -18,35 +16,17 @@ import type { QRMatrix } from "../api/types";
 import type { AccessEntry } from "./types";
 
 /**
- * One VPN account, summarised — and nothing more until it is asked for.
+ * One VPN account, as its holder sees it.
  *
- * # Why the credentials are not on the page
- *
- * A QR code is a credential in a form anyone can capture from across a room, without
- * touching the device and without the holder noticing. Somebody opening this link on a
- * train, in a café, or at a desk with a colleague behind them would otherwise have every
- * account they hold rendered at scanning size the moment the page loaded, for as long as
- * the tab stayed open.
- *
- * So the card shows only what is safe to leave on screen — which server, whether it
- * works, how much data is left — and the link, the subscription URL and both QR codes
- * live behind a tap. The tap is the point: revealing a credential should be something the
- * person chose to do at a moment of their choosing, not the default state of a page they
- * opened to check a number.
- *
- * It also happens to make the list readable. Three accounts used to be three QR codes and
- * six URLs; now it is three rows.
+ * This page gets opened in public, so URLs are blurred until revealed and QR codes are not
+ * rendered until their button is pressed — a code can be photographed from across a room,
+ * blurred text cannot be read from there.
  */
 export function AccessEntryCard({ entry }: { entry: AccessEntry }) {
-  const [open, setOpen] = useState(false);
   const status = entryStatus(entry);
 
-  // An entry we could not confirm has nothing to reveal, so it is not a button. Showing a
-  // credential we could not check, as if it were current, is worse than showing none.
-  const openable = entry.available && status.usable;
-
-  const summary = (
-    <>
+  return (
+    <Card className="p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="truncate font-semibold">{entry.server_label}</h2>
@@ -68,97 +48,47 @@ export function AccessEntryCard({ entry }: { entry: AccessEntry }) {
         </p>
       ) : null}
 
-      {entry.available ? <Summary entry={entry} /> : null}
-    </>
-  );
-
-  if (!openable) return <Card className="p-5">{summary}</Card>;
-
-  return (
-    <Card className="p-5">
-      {/*
-        The whole card is the tap target, which matters more on a phone than a small
-        "Show" link would. The quota meter is deliberately rendered outside it: a
-        role="meter" is not permitted inside a button's content model, and nesting it
-        makes the row announce as a jumble.
-      */}
-      <button
-        type="button"
-        className="w-full cursor-pointer text-left"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-      >
-        {summary}
-        <p className="mt-3 text-xs text-accent">Show connection details →</p>
-      </button>
-      <Meter entry={entry} />
-      {/*
-        Mounted only while open, rather than rendered with open={false}.
-
-        A closed native <dialog> is display:none but its children are still in the
-        document — so the links and the QR would be present, merely invisible. Not being
-        on screen is what this page cares about, so that would technically hold; not being
-        in the document at all is the stronger and more obviously correct property, and it
-        is what the test asserts. It also means each open starts from a clean state rather
-        than the last one's.
-      */}
-      {open ? <ConnectionDialog entry={entry} onClose={() => setOpen(false)} /> : null}
+      {entry.available ? (
+        <>
+          <Figures entry={entry} />
+          {/* An unconfirmed entry shows no credentials: a stale subscription URL displayed
+              as current is what gets copied. */}
+          {status.usable ? <Connection entry={entry} /> : null}
+        </>
+      ) : null}
     </Card>
   );
 }
 
-/** The figures that are safe to leave on screen: no credential, nothing scannable. */
-function Summary({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
-  const quota = quotaState(entry);
-  return (
-    <div className="mt-4 grid grid-cols-2 gap-3">
-      <StatTile
-        label="Data used"
-        value={formatBytes(quota.used)}
-        hint={quota.unlimited ? "No limit" : `of ${formatBytes(quota.limit)}`}
-      />
-      <StatTile
-        label="Expires"
-        value={entry.expires_at ? formatDateTime(entry.expires_at) : "Never"}
-      />
-    </div>
-  );
-}
-
-function Meter({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
-  const quota = quotaState(entry);
-  if (quota.unlimited) return null;
-  return (
-    <div className="mt-3">
-      <QuotaMeter fraction={quota.fraction} />
-    </div>
-  );
-}
-
 /**
- * The credentials, once asked for.
+ * Data and expiry on one line.
  *
- * Text and buttons only — no QR is drawn here. A code big enough to scan is big enough to
- * photograph from across a room, so it gets its own modal behind its own button rather
- * than appearing the moment this one opens. Two taps to put a credential on screen at
- * scanning size is the right number when the page is designed to be opened in public.
- *
- * The ordering is install page, then subscription, then the one-off link, which is
- * roughly least to most technical: somebody with no VPN app yet needs the first, somebody
- * who has one needs the second, and the third exists for clients that cannot do
- * subscriptions at all.
+ * Was two StatTiles, which spent a third of the card height on two short facts. The quota
+ * bar stays: it is 3px and reads faster as a shape.
  */
-function ConnectionDialog({
-  entry,
-  onClose,
-}: {
-  entry: Extract<AccessEntry, { available: true }>;
-  onClose: () => void;
-}) {
-  // Which QR is on screen, if any. One level deeper than this dialog, because a code
-  // large enough to scan is also large enough to photograph — the same reasoning that
-  // put this dialog behind a tap, applied once more to the one thing on the page a
-  // stranger can capture without touching the device.
+function Figures({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
+  const quota = quotaState(entry);
+  const used = quota.unlimited
+    ? `${formatBytes(quota.used)} used · no limit`
+    : `${formatBytes(quota.used)} of ${formatBytes(quota.limit)} used`;
+  const expiry = entry.expires_at ? `expires ${formatDateTime(entry.expires_at)}` : "never expires";
+
+  return (
+    <>
+      <p className="mt-1 text-xs text-muted">
+        {used} · {expiry}
+      </p>
+      {quota.unlimited ? null : (
+        <div className="mt-2">
+          <QuotaMeter fraction={quota.fraction} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The credentials, inline and blurred. Ordered least to most technical. */
+function Connection({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
   const [qr, setQr] = useState<Code | null>(null);
 
   const nothing = !entry.install_url && !entry.subscription_url && !entry.link;
@@ -174,73 +104,60 @@ function ConnectionDialog({
     ) : undefined;
 
   return (
-    <Dialog open onClose={onClose} title={entry.server_label}>
-      <div className="space-y-4">
-        {entry.install_url ? (
-          <>
-            {/*
-              The primary action, and an <a> rather than a button: long-press, middle-click
-              and "open in new tab" all have to work, because those are exactly the
-              gestures somebody reaches for when moving a link between two devices — which
-              is the entire situation. vlessvmore's install page also walks a first-timer
-              through picking a client, which a bare subscription URL does not.
-            */}
-            <ButtonLink
-              variant="primary"
-              className="w-full"
-              href={entry.install_url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Set this up
-            </ButtonLink>
-            <p className="text-xs text-muted">
-              Opens a page that walks you through it. If you already have a VPN app, use
-              the subscription link below instead.
-            </p>
-          </>
-        ) : null}
-
-        {entry.subscription_url ? (
-          <SecretField
-            label="Subscription link"
-            value={entry.subscription_url}
-            hint="Keeps itself up to date, and shows your remaining data in the app."
-            action={qrAction(
-              "Subscription link",
-              entry.subscription_qr,
-              "Scan this one. It keeps itself up to date and shows your remaining data in the app.",
-            )}
-          />
-        ) : null}
-
-        {entry.link ? (
-          <SecretField
-            label="One-off vless:// link"
-            value={entry.link}
-            hint="For apps that don't do subscriptions. It won't update, and carries no data allowance."
-            action={qrAction(
-              "One-off vless:// link",
-              entry.qr,
-              "A one-off setup. It won't update, and won't show your data allowance.",
-            )}
-          />
-        ) : null}
-
-        {nothing ? (
-          <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
-            This connection's details couldn't be loaded just now. Close this and try
-            Refresh in a minute.
+    <div className="mt-3 space-y-3 border-t border-line pt-3">
+      {entry.install_url ? (
+        <>
+          {/* An <a>, not a button: long-press, middle-click and open-in-new-tab all have
+              to work when moving a link between devices. */}
+          <ButtonLink
+            variant="primary"
+            className="w-full"
+            href={entry.install_url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Set this up
+          </ButtonLink>
+          <p className="text-xs text-muted">
+            New to this? Start here. Already have a VPN app? Use the subscription link.
           </p>
-        ) : null}
-      </div>
+        </>
+      ) : null}
 
-      {/*
-        Rendered inside this dialog's tree, not beside it. Dialog resolves "innermost" by
-        document order when Escape is pressed, so a QR modal mounted elsewhere would take
-        this dialog down with it — the bug the "close only the topmost dialog" change
-        exists to prevent.
-      */}
+      {entry.subscription_url ? (
+        <SecretField
+          label="Subscription link"
+          value={entry.subscription_url}
+          hint="Updates itself, and shows your data allowance in the app."
+          action={qrAction(
+            "Subscription link",
+            entry.subscription_qr,
+            "Scan this one. It keeps itself up to date and shows your remaining data in the app.",
+          )}
+        />
+      ) : null}
+
+      {entry.link ? (
+        <SecretField
+          label="One-off vless:// link"
+          value={entry.link}
+          hint="For apps without subscription support. Does not update."
+          action={qrAction(
+            "One-off vless:// link",
+            entry.qr,
+            "A one-off setup. It won't update, and won't show your data allowance.",
+          )}
+        />
+      ) : null}
+
+      {nothing ? (
+        <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
+          This connection's details couldn't be loaded just now. Try Refresh in a minute.
+        </p>
+      ) : null}
+
+      {/* Mounted only while open: a closed <dialog> keeps its children in the document,
+          and the point is that the code is not there until asked for. */}
       {qr ? (
         <QrDialog
           title={qr.title}
@@ -250,7 +167,7 @@ function ConnectionDialog({
           onClose={() => setQr(null)}
         />
       ) : null}
-    </Dialog>
+    </div>
   );
 }
 
@@ -259,4 +176,3 @@ interface Code {
   qr: QRMatrix;
   caption: string;
 }
-

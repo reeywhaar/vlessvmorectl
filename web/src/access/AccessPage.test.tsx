@@ -168,66 +168,59 @@ describe("AccessPage", () => {
   });
 
   /**
-   * The shoulder-surfing case, and the most valuable assertion in this file.
+   * The shoulder-surfing case, and the most valuable assertions in this file.
    *
-   * Somebody opens this link on a train or in a café. Nothing that can be photographed or
-   * scanned from across the room may be on screen until they ask for it — so on load the
-   * card shows a server, a status and two numbers, and no credential of any kind is in
-   * the document at all.
+   * Somebody opens this link on a train or in a café. The links are on the page — that is
+   * what they came for — but nothing is legible over a shoulder, and nothing is scannable
+   * from across the room, until they decide otherwise.
    */
-  it("shows no credentials until they are asked for", async () => {
+  it("blurs every credential, and draws no QR at all, on load", async () => {
     stubFetch(() => json(payload()));
     render(<AccessPage token={TOKEN} />);
     await screen.findByText("Ivan");
 
-    // The safe summary is there.
+    // The figures somebody opened the page to check are plainly there, on one line.
     expect(screen.getByText("Amsterdam")).toBeTruthy();
-    expect(screen.getByText("Data used")).toBeTruthy();
+    expect(screen.getByText(/100 B of 1000 B used · never expires/)).toBeTruthy();
 
-    // Nothing else is.
-    expect(screen.queryByText(/vless:\/\//)).toBeNull();
-    expect(screen.queryByText(/amsterdam\.example\.com\/sub\//)).toBeNull();
-    expect(screen.queryByText("Subscription link")).toBeNull();
-    expect(screen.queryByRole("img")).toBeNull(); // QrMatrix renders an svg role="img"
-  });
-
-  it("reveals the links on a tap, and the QR only one tap further", async () => {
-    const u = userEvent.setup();
-    stubFetch(() => json(payload()));
-    render(<AccessPage token={TOKEN} />);
-    await screen.findByText("Ivan");
-
-    await u.click(screen.getByRole("button", { name: /Amsterdam/ }));
-
-    // The links are present now…
+    // The links are present and inline — no dialog to get through — but blurred.
+    // Asserted on the class rather than only on the Reveal control, so dropping the blur
+    // while keeping the button would fail.
     expect(screen.getByText("Subscription link")).toBeTruthy();
-    const value = screen.getByText(SUB_URL);
+    expect(screen.getByText(SUB_URL).className).toContain("blur-");
+    expect(screen.getByText(VLESS_LINK).className).toContain("blur-");
 
-    // …but still blurred, behind a Reveal, because the dialog can be open while somebody
-    // glances over. Asserted on the class rather than only on the Reveal control, so
-    // dropping the blur while keeping the button would fail.
-    expect(value.className).toContain("blur-");
-    expect(screen.getAllByRole("button", { name: "Reveal" }).length).toBeGreaterThan(0);
-
-    // And the code is still not drawn, because it is the part a stranger can capture
-    // without touching the device at all.
+    // The QR is the one thing a stranger can capture without touching the device, so it
+    // is not in the document until its button is pressed. QrMatrix renders role="img".
     expect(screen.queryByRole("img")).toBeNull();
-
-    await u.click(screen.getByRole("button", { name: /Show subscription link as a QR code/i }));
-    expect(await screen.findByRole("img")).toBeTruthy();
-    expect(screen.getByText(/Anyone who can see this code/i)).toBeTruthy();
   });
 
-  it("unblurs a link only when Reveal is pressed", async () => {
+  it("unblurs a link only when its own Reveal is pressed", async () => {
     const u = userEvent.setup();
     stubFetch(() => json(payload()));
     render(<AccessPage token={TOKEN} />);
     await screen.findByText("Ivan");
-    await u.click(screen.getByRole("button", { name: /Amsterdam/ }));
 
     expect(screen.getByText(SUB_URL).className).toContain("blur-");
     await u.click(screen.getAllByRole("button", { name: "Reveal" })[0]!);
     expect(screen.getByText(SUB_URL).className).not.toContain("blur-");
+    // Each row reveals independently; one Reveal does not unmask the other.
+    expect(screen.getByText(VLESS_LINK).className).toContain("blur-");
+  });
+
+  it("draws a QR only after its button, and in a dialog of its own", async () => {
+    const u = userEvent.setup();
+    stubFetch(() => json(payload()));
+    render(<AccessPage token={TOKEN} />);
+    await screen.findByText("Ivan");
+
+    expect(screen.queryByRole("img")).toBeNull();
+    await u.click(screen.getByRole("button", { name: /Show subscription link as a QR code/i }));
+
+    expect(await screen.findByRole("img")).toBeTruthy();
+    expect(screen.getByText(/Anyone who can see this code/i)).toBeTruthy();
+    // One modal, not two: the links are inline, so this is the only thing that opens.
+    expect(document.querySelectorAll("dialog[open]")).toHaveLength(1);
   });
 
   it("does not offer details for an entry it could not confirm", async () => {
@@ -243,7 +236,8 @@ describe("AccessPage", () => {
     render(<AccessPage token={TOKEN} />);
     await screen.findByText(/temporarily unavailable/i);
 
-    // There is nothing behind the tap, so there is no tap.
-    expect(screen.queryByRole("button", { name: /Berlin/ })).toBeNull();
+    // Nothing we could not confirm is shown as though it were current.
+    expect(screen.queryByText("Subscription link")).toBeNull();
+    expect(screen.queryByRole("button", { name: /as a QR code/i })).toBeNull();
   });
 });
