@@ -4,8 +4,11 @@ import {
   Badge,
   ButtonLink,
   Card,
+  CopyButton,
+  Dialog,
+  IconButton,
+  QrIcon,
   QuotaMeter,
-  SecretField,
   StatTile,
   cx,
 } from "../components/ui";
@@ -14,27 +17,35 @@ import { entryStatus } from "./copy";
 import type { AccessEntry } from "./types";
 
 /**
- * One VPN account, as its holder sees it.
+ * One VPN account, summarised — and nothing more until it is asked for.
  *
- * Two layout decisions worth keeping, because both look arbitrary and are not:
+ * # Why the credentials are not on the page
  *
- * The actions come *first in the DOM* and the QR is moved left only at `sm:`. On a phone
- * the QR is close to useless — you cannot scan your own screen — so the tap targets have
- * to lead, for reading order and for a screen reader alike. On a laptop the QR is the
- * whole point, because the second device is the phone. `order-*` buys both without
- * duplicating the markup or lying to assistive tech about the mobile order.
+ * A QR code is a credential in a form anyone can capture from across a room, without
+ * touching the device and without the holder noticing. Somebody opening this link on a
+ * train, in a café, or at a desk with a colleague behind them would otherwise have every
+ * account they hold rendered at scanning size the moment the page loaded, for as long as
+ * the tab stayed open.
  *
- * The install page, not the subscription URL, is the primary action. vlessvmore's install
- * page walks a first-timer through picking a client; a subscription URL assumes they have
- * one already. It is a ButtonLink rather than a Button because long-press, middle-click
- * and "open in new tab" all have to work — those are exactly the gestures somebody
- * reaches for when moving a link between two devices, which is the entire situation.
+ * So the card shows only what is safe to leave on screen — which server, whether it
+ * works, how much data is left — and the link, the subscription URL and both QR codes
+ * live behind a tap. The tap is the point: revealing a credential should be something the
+ * person chose to do at a moment of their choosing, not the default state of a page they
+ * opened to check a number.
+ *
+ * It also happens to make the list readable. Three accounts used to be three QR codes and
+ * six URLs; now it is three rows.
  */
 export function AccessEntryCard({ entry }: { entry: AccessEntry }) {
+  const [open, setOpen] = useState(false);
   const status = entryStatus(entry);
 
-  return (
-    <Card className="p-5">
+  // An entry we could not confirm has nothing to reveal, so it is not a button. Showing a
+  // credential we could not check, as if it were current, is worse than showing none.
+  const openable = entry.available && status.usable;
+
+  const summary = (
+    <>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="truncate font-semibold">{entry.server_label}</h2>
@@ -56,121 +67,244 @@ export function AccessEntryCard({ entry }: { entry: AccessEntry }) {
         </p>
       ) : null}
 
+      {entry.available ? <Summary entry={entry} /> : null}
+    </>
+  );
+
+  if (!openable) return <Card className="p-5">{summary}</Card>;
+
+  return (
+    <Card className="p-5">
       {/*
-        An unreachable entry shows no link, no QR and no numbers. Showing a credential we
-        could not confirm, next to figures we could not refresh, is worse than showing
-        nothing: it looks current, and it is the state in which somebody would copy a
-        subscription URL that has since been rotated.
+        The whole card is the tap target, which matters more on a phone than a small
+        "Show" link would. The quota meter is deliberately rendered outside it: a
+        role="meter" is not permitted inside a button's content model, and nesting it
+        makes the row announce as a jumble.
       */}
-      {entry.available && status.usable ? <Connection entry={entry} /> : null}
+      <button
+        type="button"
+        className="w-full cursor-pointer text-left"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+      >
+        {summary}
+        <p className="mt-3 text-xs text-accent">Show connection details →</p>
+      </button>
+      <Meter entry={entry} />
+      {/*
+        Mounted only while open, rather than rendered with open={false}.
+
+        A closed native <dialog> is display:none but its children are still in the
+        document — so the links and the QR would be present, merely invisible. Not being
+        on screen is what this page cares about, so that would technically hold; not being
+        in the document at all is the stronger and more obviously correct property, and it
+        is what the test asserts. It also means each open starts from a clean state rather
+        than the last one's.
+      */}
+      {open ? <ConnectionDialog entry={entry} onClose={() => setOpen(false)} /> : null}
     </Card>
   );
 }
 
-function Connection({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
-  // The subscription is the better thing to scan: the client re-fetches it every 24 hours
-  // so config and key changes propagate, and its response headers are what make the
-  // client show remaining traffic and an expiry date. The vless:// URI is the fallback
-  // for clients that do not do subscriptions — and it is a much denser code.
-  const codes = [
-    entry.subscription_qr && {
-      key: "sub" as const,
-      label: "Subscription",
-      qr: entry.subscription_qr,
-    },
-    entry.qr && { key: "vless" as const, label: "vless://", qr: entry.qr },
-  ].filter((c) => c !== undefined);
-
-  const [shown, setShown] = useState<"sub" | "vless">("sub");
-  const active = codes.find((c) => c.key === shown) ?? codes[0];
+/** The figures that are safe to leave on screen: no credential, nothing scannable. */
+function Summary({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
   const quota = quotaState(entry);
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-3">
+      <StatTile
+        label="Data used"
+        value={formatBytes(quota.used)}
+        hint={quota.unlimited ? "No limit" : `of ${formatBytes(quota.limit)}`}
+      />
+      <StatTile
+        label="Expires"
+        value={entry.expires_at ? formatDateTime(entry.expires_at) : "Never"}
+      />
+    </div>
+  );
+}
+
+function Meter({ entry }: { entry: Extract<AccessEntry, { available: true }> }) {
+  const quota = quotaState(entry);
+  if (quota.unlimited) return null;
+  return (
+    <div className="mt-3">
+      <QuotaMeter fraction={quota.fraction} />
+    </div>
+  );
+}
+
+/**
+ * The credentials, once asked for.
+ *
+ * Text and buttons only — no QR is drawn here. A code big enough to scan is big enough to
+ * photograph from across a room, so it gets its own modal behind its own button rather
+ * than appearing the moment this one opens. Two taps to put a credential on screen at
+ * scanning size is the right number when the page is designed to be opened in public.
+ *
+ * The ordering is install page, then subscription, then the one-off link, which is
+ * roughly least to most technical: somebody with no VPN app yet needs the first, somebody
+ * who has one needs the second, and the third exists for clients that cannot do
+ * subscriptions at all.
+ */
+function ConnectionDialog({
+  entry,
+  onClose,
+}: {
+  entry: Extract<AccessEntry, { available: true }>;
+  onClose: () => void;
+}) {
+  // Which QR is on screen, if any. One level deeper than this dialog, because a code
+  // large enough to scan is also large enough to photograph — the same reasoning that
+  // put this dialog behind a tap, applied once more to the one thing on the page a
+  // stranger can capture without touching the device.
+  const [qr, setQr] = useState<Code | null>(null);
+
+  const nothing = !entry.install_url && !entry.subscription_url && !entry.link;
 
   return (
-    <>
-      <div className="mt-4 flex flex-col gap-4 sm:flex-row">
-        {/* DOM order: actions first. See the component comment. */}
-        <div className="min-w-0 flex-1 space-y-3 sm:order-2">
-          {entry.install_url ? (
+    <Dialog open onClose={onClose} title={entry.server_label}>
+      <div className="space-y-4">
+        {entry.install_url ? (
+          <>
+            {/*
+              The primary action, and an <a> rather than a button: long-press, middle-click
+              and "open in new tab" all have to work, because those are exactly the
+              gestures somebody reaches for when moving a link between two devices — which
+              is the entire situation. vlessvmore's install page also walks a first-timer
+              through picking a client, which a bare subscription URL does not.
+            */}
             <ButtonLink
               variant="primary"
-              className="w-full sm:w-auto"
+              className="w-full"
               href={entry.install_url}
               target="_blank"
               rel="noopener noreferrer"
             >
               Set this up
             </ButtonLink>
-          ) : null}
-
-          {entry.subscription_url ? (
-            <SecretField label="Subscription link" value={entry.subscription_url} masked={false} />
-          ) : null}
-
-          {entry.link ? (
-            <details>
-              <summary className="cursor-pointer text-xs text-muted hover:text-ink">
-                The raw vless:// link
-              </summary>
-              <div className="mt-2">
-                <SecretField label="vless://" value={entry.link} masked={false} />
-              </div>
-            </details>
-          ) : null}
-
-          {!entry.install_url && !entry.subscription_url && !entry.link ? (
-            <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
-              This connection's details couldn't be loaded just now. Try Refresh in a
-              minute.
+            <p className="text-xs text-muted">
+              Opens a page that walks you through it. If you already have a VPN app, use
+              the subscription link below instead.
             </p>
-          ) : null}
-        </div>
+          </>
+        ) : null}
 
-        {active ? (
-          <div className="shrink-0 sm:order-1">
-            <QrMatrix qr={active.qr} label={`${active.label} QR code`} />
-            {codes.length > 1 ? (
-              <div className="mt-2 flex gap-1">
-                {codes.map((c) => (
-                  <button
-                    key={c.key}
-                    onClick={() => setShown(c.key)}
-                    className={cx(
-                      "rounded-lg px-2 py-1 text-xs",
-                      c.key === active.key
-                        ? "bg-accent text-accent-ink"
-                        : "text-muted hover:bg-line",
-                    )}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <p className="mt-2 max-w-[220px] text-xs text-muted">
-              {active.key === "sub"
-                ? "Scan this one. It keeps itself up to date and shows your remaining data in the app."
-                : "A one-off setup. It won't update, and won't show your data allowance."}
-            </p>
-          </div>
+        {entry.subscription_url ? (
+          <CredentialRow
+            label="Subscription link"
+            value={entry.subscription_url}
+            hint="Keeps itself up to date, and shows your remaining data in the app."
+            {...(entry.subscription_qr
+              ? {
+                  onShowQr: () =>
+                    setQr({
+                      title: "Subscription QR",
+                      qr: entry.subscription_qr!,
+                      caption:
+                        "Scan this one. It keeps itself up to date and shows your remaining data in the app.",
+                    }),
+                }
+              : {})}
+          />
+        ) : null}
+
+        {entry.link ? (
+          <CredentialRow
+            label="One-off vless:// link"
+            value={entry.link}
+            hint="For apps that don't do subscriptions. It won't update, and carries no data allowance."
+            {...(entry.qr
+              ? {
+                  onShowQr: () =>
+                    setQr({
+                      title: "vless:// QR",
+                      qr: entry.qr!,
+                      caption: "A one-off setup. It won't update, and won't show your data allowance.",
+                    }),
+                }
+              : {})}
+          />
+        ) : null}
+
+        {nothing ? (
+          <p className="rounded-lg bg-warn/15 p-3 text-xs text-warn">
+            This connection's details couldn't be loaded just now. Close this and try
+            Refresh in a minute.
+          </p>
         ) : null}
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        <StatTile
-          label="Data used"
-          value={formatBytes(quota.used)}
-          hint={quota.unlimited ? "No limit" : `of ${formatBytes(quota.limit)}`}
-        />
-        <StatTile
-          label="Expires"
-          value={entry.expires_at ? formatDateTime(entry.expires_at) : "Never"}
-        />
+      {/*
+        Rendered inside this dialog's tree, not beside it. Dialog resolves "innermost" by
+        document order when Escape is pressed, so a QR modal mounted elsewhere would take
+        this dialog down with it — the bug the "close only the topmost dialog" change
+        exists to prevent.
+      */}
+      {qr ? <QrDialog code={qr} onClose={() => setQr(null)} /> : null}
+    </Dialog>
+  );
+}
+
+interface Code {
+  title: string;
+  qr: NonNullable<Extract<AccessEntry, { available: true }>["qr"]>;
+  caption: string;
+}
+
+/**
+ * A credential, with its two actions against it.
+ *
+ * Icon buttons rather than labelled ones: two text buttons would be wider than the value
+ * they act on, and on a phone that pushes the value down to a line of its own for no
+ * gain. Both carry an accessible name, so nothing is lost to a screen reader.
+ *
+ * The value is shown rather than blurred. The deliberate act the blur exists to require
+ * already happened, at the tap that opened the dialog — asking for a second reveal here
+ * would be friction with nothing left to protect.
+ */
+function CredentialRow({
+  label,
+  value,
+  hint,
+  onShowQr,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  onShowQr?: () => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-sm font-medium">{label}</div>
+      <div className="flex items-center gap-1">
+        <code className="min-w-0 flex-1 truncate rounded-lg border border-line bg-bg px-3 py-2 text-xs">
+          {value}
+        </code>
+        <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} icon />
+        {onShowQr ? (
+          <IconButton label={`Show ${label.toLowerCase()} as a QR code`} onClick={onShowQr}>
+            <QrIcon />
+          </IconButton>
+        ) : null}
       </div>
-      {quota.unlimited ? null : (
-        <div className="mt-3">
-          <QuotaMeter fraction={quota.fraction} />
-        </div>
-      )}
-    </>
+      <p className="mt-1 text-xs text-muted">{hint}</p>
+    </div>
+  );
+}
+
+/** The QR itself, alone, and easy to dismiss. */
+function QrDialog({ code, onClose }: { code: Code; onClose: () => void }) {
+  return (
+    <Dialog open onClose={onClose} title={code.title}>
+      <div className="flex flex-col items-center gap-3">
+        <QrMatrix qr={code.qr} label={code.title} />
+        <p className="max-w-xs text-center text-xs text-muted">{code.caption}</p>
+        <p className="max-w-xs text-center text-xs text-warn">
+          Anyone who can see this code can use your connection. Close it once you have
+          scanned it.
+        </p>
+      </div>
+    </Dialog>
   );
 }

@@ -200,7 +200,22 @@ export function EmptyState({ title, children }: { title: ReactNode; children?: R
  * link is the only thing they came to do — so the fallback selects the text instead and
  * tells them to copy it themselves.
  */
-export function CopyButton({ value, label = "Copy" }: { value: string; label?: string }) {
+export function CopyButton({
+  value,
+  label = "Copy",
+  icon = false,
+}: {
+  value: string;
+  label?: string;
+  /**
+   * Render as a square glyph rather than a labelled button.
+   *
+   * For rows that carry a credential and need two actions side by side, where two text
+   * buttons would be wider than the value they act on. The label becomes the accessible
+   * name and the tooltip, so nothing is lost to a screen reader.
+   */
+  icon?: boolean;
+}) {
   const [state, setState] = useState<"idle" | "copied" | "unavailable">("idle");
 
   useEffect(() => {
@@ -226,6 +241,16 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
     );
   };
 
+  const text = state === "copied" ? "Copied" : state === "unavailable" ? "Select it" : label;
+
+  if (icon) {
+    return (
+      <IconButton onClick={copy} label={text} active={state === "copied"}>
+        {state === "copied" ? <CheckIcon /> : <CopyIcon />}
+      </IconButton>
+    );
+  }
+
   return (
     <Button
       variant="secondary"
@@ -233,8 +258,90 @@ export function CopyButton({ value, label = "Copy" }: { value: string; label?: s
       // Announced rather than only shown, since the visual change is subtle.
       aria-live="polite"
     >
-      {state === "copied" ? "Copied" : state === "unavailable" ? "Select it" : label}
+      {text}
     </Button>
+  );
+}
+
+/**
+ * A square glyph button.
+ *
+ * `label` is the accessible name and the tooltip rather than visible text, so these are
+ * only ever right where the glyph is unambiguous and the context supplies the noun — the
+ * copy and QR actions sitting against the value they act on.
+ */
+export function IconButton({
+  label,
+  onClick,
+  active,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      // Announced rather than only shown: the glyph swap on success is subtle.
+      aria-live="polite"
+      className={cx(
+        "inline-flex size-9 shrink-0 items-center justify-center rounded-lg",
+        "transition-colors hover:bg-line",
+        active ? "text-ok" : "text-muted hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Inline SVG rather than an icon package.
+ *
+ * Three glyphs do not justify a dependency, and these ship in a bundle a stranger on
+ * mobile data downloads. `currentColor` throughout so they inherit the button's state.
+ */
+const iconProps = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.75,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  className: "size-5",
+  "aria-hidden": true,
+};
+
+export function CopyIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="9" y="9" width="11" height="11" rx="2.5" />
+      <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15" />
+    </svg>
+  );
+}
+
+export function CheckIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="m5 13 4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
+export function QrIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.5" />
+      <rect x="14" y="3.5" width="6.5" height="6.5" rx="1.5" />
+      <rect x="3.5" y="14" width="6.5" height="6.5" rx="1.5" />
+      <path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM14 20.5h2.5M20.5 14v2.5" />
+    </svg>
   );
 }
 

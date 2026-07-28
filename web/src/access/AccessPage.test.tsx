@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { AccessPage } from "./AccessPage";
 import type { AccessResponse } from "./types";
 
@@ -14,6 +15,10 @@ import type { AccessResponse } from "./types";
  */
 
 const TOKEN = "QK7M2XA9TESTTKEN0123456789ABCDEF";
+const SUB_URL = "https://amsterdam.example.com/sub/ABC";
+const VLESS_LINK = "vless://uuid@amsterdam.example.com:8443?type=tcp";
+// A 2x2 matrix is enough: these tests care that a code is drawn, not what it encodes.
+const QR = { size: 2, rows: ["10", "01"], quiet_zone: 4 };
 
 function payload(over: Partial<AccessResponse> = {}): AccessResponse {
   return {
@@ -29,9 +34,11 @@ function payload(over: Partial<AccessResponse> = {}): AccessResponse {
         enabled: true,
         quota_bytes: 1000,
         usage: { window_up: 10, window_down: 90, window_total: 100, quota_remaining: 900 },
-        link: "vless://uuid@amsterdam.example.com:8443?type=tcp",
-        subscription_url: "https://amsterdam.example.com/sub/ABC",
+        link: VLESS_LINK,
+        subscription_url: SUB_URL,
         install_url: "https://amsterdam.example.com/show/ABC",
+        qr: QR,
+        subscription_qr: QR,
       },
     ],
     ...over,
@@ -151,8 +158,6 @@ describe("AccessPage", () => {
 
     expect(await screen.findByText(/temporarily unavailable/i)).toBeTruthy();
     expect(screen.getByText(/probably still working/i)).toBeTruthy();
-    // A credential we could not confirm, shown as if current, is worse than none.
-    expect(screen.queryByText(/vless:\/\//)).toBeNull();
   });
 
   it("renders an empty subscriber as an empty state, not an error", async () => {
@@ -162,14 +167,64 @@ describe("AccessPage", () => {
     expect(await screen.findByText(/nothing here yet/i)).toBeTruthy();
   });
 
-  it("keeps the raw vless link behind a disclosure", async () => {
+  /**
+   * The shoulder-surfing case, and the most valuable assertion in this file.
+   *
+   * Somebody opens this link on a train or in a café. Nothing that can be photographed or
+   * scanned from across the room may be on screen until they ask for it — so on load the
+   * card shows a server, a status and two numbers, and no credential of any kind is in
+   * the document at all.
+   */
+  it("shows no credentials until they are asked for", async () => {
     stubFetch(() => json(payload()));
     render(<AccessPage token={TOKEN} />);
     await screen.findByText("Ivan");
 
-    // The subscription is the thing to copy; the raw URI is the fallback and should not
-    // compete with it.
-    expect(screen.getByText(/the raw vless:\/\/ link/i)).toBeTruthy();
+    // The safe summary is there.
+    expect(screen.getByText("Amsterdam")).toBeTruthy();
+    expect(screen.getByText("Data used")).toBeTruthy();
+
+    // Nothing else is.
+    expect(screen.queryByText(/vless:\/\//)).toBeNull();
+    expect(screen.queryByText(/amsterdam\.example\.com\/sub\//)).toBeNull();
+    expect(screen.queryByText("Subscription link")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull(); // QrMatrix renders an svg role="img"
+  });
+
+  it("reveals the links on a tap, and the QR only one tap further", async () => {
+    const u = userEvent.setup();
+    stubFetch(() => json(payload()));
+    render(<AccessPage token={TOKEN} />);
+    await screen.findByText("Ivan");
+
+    await u.click(screen.getByRole("button", { name: /Amsterdam/ }));
+
+    // The links are now readable…
     expect(screen.getByText("Subscription link")).toBeTruthy();
+    expect(screen.getByText(SUB_URL)).toBeTruthy();
+    // …but the code is still not drawn, because it is the part a stranger can capture
+    // without touching the device.
+    expect(screen.queryByRole("img")).toBeNull();
+
+    await u.click(screen.getByRole("button", { name: /Show subscription link as a QR code/i }));
+    expect(await screen.findByRole("img")).toBeTruthy();
+    expect(screen.getByText(/Anyone who can see this code/i)).toBeTruthy();
+  });
+
+  it("does not offer details for an entry it could not confirm", async () => {
+    stubFetch(() =>
+      json(
+        payload({
+          entries: [
+            { id: "e1", server_label: "Berlin", available: false, reason: "unavailable" },
+          ],
+        }),
+      ),
+    );
+    render(<AccessPage token={TOKEN} />);
+    await screen.findByText(/temporarily unavailable/i);
+
+    // There is nothing behind the tap, so there is no tap.
+    expect(screen.queryByRole("button", { name: /Berlin/ })).toBeNull();
   });
 });
