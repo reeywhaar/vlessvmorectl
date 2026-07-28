@@ -7,23 +7,13 @@ import { ApiProvider } from "../../api/ApiProvider";
 import { ApiDispatcher } from "../../api/dispatcher";
 import { makeQueryClient } from "../../queries/client";
 import type { Method, RequestOptions, Transport } from "../../api/transport";
-import type { Server, Subscriber, VlessUser } from "../../api/types";
+import type { Subscriber } from "../../api/types";
+import { makeFake, makeServer, makeUser } from "../../test/fake";
 
-const ams: Server = { id: "aaa111", url: "https://ams.example.com" };
-const ber: Server = { id: "bbb222", url: "https://ber.example.com" };
+const user = (id: string, name: string) => makeUser({ id, name });
 
-function user(id: string, name: string): VlessUser {
-  return {
-    id,
-    name,
-    uuid: "uuid-" + id,
-    enabled: true,
-    quota_bytes: 0,
-    usage_reset_at: "2026-07-01T00:00:00Z",
-    created_at: "2026-06-01T00:00:00Z",
-    updated_at: "2026-07-01T00:00:00Z",
-  };
-}
+const ams = makeServer({ id: "aaa111", url: "https://ams.example.com" });
+const ber = makeServer({ id: "bbb222", url: "https://ber.example.com" });
 
 function subscriber(entries: Subscriber["entries"] = []): Subscriber {
   return {
@@ -45,11 +35,22 @@ const json = (body: unknown, status = 200) =>
   });
 
 /**
- * A fake Transport, matching the house style in App.test.tsx. `attaches` records every
- * POST so a test can assert how many landed and in what shape; `rejectFor` makes one
- * specific account fail, which is the partial-failure case.
+ * Wraps the shared fake with the two things only this dialog needs: the attach POSTs it
+ * made, and the ability to make one account refuse.
+ *
+ * Layered rather than folded into makeFake, because "reject exactly this vless_user_id"
+ * is a partial-failure scenario for one screen, not a property of a stand-in backend.
  */
 function fakeTransport(rejectFor: string[] = []) {
+  const base = makeFake({
+    servers: [ams, ber],
+    users: {
+      [ams.id]: [user("u_a1", "alice-phone"), user("u_a2", "alice-laptop")],
+      [ber.id]: [user("u_b1", "bob-phone")],
+    },
+    // Named, because one test filters on the server label rather than an account name.
+    infos: { [ams.id]: { name: "Amsterdam" }, [ber.id]: { name: "Berlin" } },
+  });
   const attaches: { server_id: string; vless_user_id: string; label: string }[] = [];
 
   const transport: Transport = {
@@ -62,26 +63,9 @@ function fakeTransport(rejectFor: string[] = []) {
         attaches.push(body);
         return Promise.resolve(json({ subscriber: subscriber() }));
       }
-      return Promise.resolve(json({ error: "no such endpoint" }, 404));
+      return base.transport.panel(method, path, opts);
     },
-    node(server: Server, _m: Method, path: string) {
-      if (path === "/api/server") {
-        return Promise.resolve(
-          json(server.id === ams.id ? { name: "Amsterdam", host: "a" } : { name: "Berlin", host: "b" }),
-        );
-      }
-      if (path === "/api/users") {
-        return Promise.resolve(
-          json({
-            users:
-              server.id === ams.id
-                ? [user("u_a1", "alice-phone"), user("u_a2", "alice-laptop")]
-                : [user("u_b1", "bob-phone")],
-          }),
-        );
-      }
-      return Promise.resolve(json({ error: "not used" }, 404));
-    },
+    node: base.transport.node,
   };
 
   return { transport, attaches };
