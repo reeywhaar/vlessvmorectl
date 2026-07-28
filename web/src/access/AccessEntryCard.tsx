@@ -4,11 +4,11 @@ import {
   Badge,
   ButtonLink,
   Card,
-  CopyButton,
   Dialog,
   IconButton,
   QrIcon,
   QuotaMeter,
+  SecretField,
   StatTile,
   cx,
 } from "../components/ui";
@@ -163,6 +163,16 @@ function ConnectionDialog({
 
   const nothing = !entry.install_url && !entry.subscription_url && !entry.link;
 
+  const qrAction = (title: string, matrix: QRMatrix | undefined, caption: string) =>
+    matrix ? (
+      <IconButton
+        label={`Show ${title.toLowerCase()} as a QR code`}
+        onClick={() => setQr({ title, qr: matrix, caption })}
+      >
+        <QrIcon />
+      </IconButton>
+    ) : undefined;
+
   return (
     <Dialog open onClose={onClose} title={entry.server_label}>
       <div className="space-y-4">
@@ -192,39 +202,28 @@ function ConnectionDialog({
         ) : null}
 
         {entry.subscription_url ? (
-          <CredentialRow
+          <SecretField
             label="Subscription link"
             value={entry.subscription_url}
             hint="Keeps itself up to date, and shows your remaining data in the app."
-            {...(entry.subscription_qr
-              ? {
-                  onShowQr: () =>
-                    setQr({
-                      title: "Subscription QR",
-                      qr: entry.subscription_qr!,
-                      caption:
-                        "Scan this one. It keeps itself up to date and shows your remaining data in the app.",
-                    }),
-                }
-              : {})}
+            action={qrAction(
+              "Subscription link",
+              entry.subscription_qr,
+              "Scan this one. It keeps itself up to date and shows your remaining data in the app.",
+            )}
           />
         ) : null}
 
         {entry.link ? (
-          <CredentialRow
+          <SecretField
             label="One-off vless:// link"
             value={entry.link}
             hint="For apps that don't do subscriptions. It won't update, and carries no data allowance."
-            {...(entry.qr
-              ? {
-                  onShowQr: () =>
-                    setQr({
-                      title: "vless:// QR",
-                      qr: entry.qr!,
-                      caption: "A one-off setup. It won't update, and won't show your data allowance.",
-                    }),
-                }
-              : {})}
+            action={qrAction(
+              "One-off vless:// link",
+              entry.qr,
+              "A one-off setup. It won't update, and won't show your data allowance.",
+            )}
           />
         ) : null}
 
@@ -259,46 +258,5 @@ interface Code {
   title: string;
   qr: QRMatrix;
   caption: string;
-}
-
-/**
- * A credential, with its two actions against it.
- *
- * Icon buttons rather than labelled ones: two text buttons would be wider than the value
- * they act on, and on a phone that pushes the value down to a line of its own for no
- * gain. Both carry an accessible name, so nothing is lost to a screen reader.
- *
- * The value is shown rather than blurred. The deliberate act the blur exists to require
- * already happened, at the tap that opened the dialog — asking for a second reveal here
- * would be friction with nothing left to protect.
- */
-function CredentialRow({
-  label,
-  value,
-  hint,
-  onShowQr,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  onShowQr?: () => void;
-}) {
-  return (
-    <div>
-      <div className="mb-1 text-sm font-medium">{label}</div>
-      <div className="flex items-center gap-1">
-        <code className="min-w-0 flex-1 truncate rounded-lg border border-line bg-bg px-3 py-2 text-xs">
-          {value}
-        </code>
-        <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} icon />
-        {onShowQr ? (
-          <IconButton label={`Show ${label.toLowerCase()} as a QR code`} onClick={onShowQr}>
-            <QrIcon />
-          </IconButton>
-        ) : null}
-      </div>
-      <p className="mt-1 text-xs text-muted">{hint}</p>
-    </div>
-  );
 }
 

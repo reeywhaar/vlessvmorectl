@@ -413,11 +413,14 @@ export function SecretField({
   label,
   value,
   masked = true,
+  hint,
   action,
 }: {
   label: string;
   value: string;
   masked?: boolean;
+  /** What this value is for, under the row. */
+  hint?: ReactNode;
   /**
    * An extra control beside Copy — in practice the button that puts this value on screen
    * as a QR code.
@@ -452,9 +455,14 @@ export function SecretField({
         >
           {value}
         </code>
-        <CopyButton value={value} />
+        {/* Icons, not a labelled button. A credential row already carries a label, a
+            Reveal control and often a QR button; a text "Copy" beside all that is wider
+            than the value it acts on, and on a narrow drawer it pushes the value to its
+            own line. The accessible name is unchanged. */}
+        <CopyButton value={value} icon />
         {action}
       </div>
+      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }

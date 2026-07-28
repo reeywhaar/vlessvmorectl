@@ -199,16 +199,35 @@ describe("AccessPage", () => {
 
     await u.click(screen.getByRole("button", { name: /Amsterdam/ }));
 
-    // The links are now readable…
+    // The links are present now…
     expect(screen.getByText("Subscription link")).toBeTruthy();
-    expect(screen.getByText(SUB_URL)).toBeTruthy();
-    // …but the code is still not drawn, because it is the part a stranger can capture
-    // without touching the device.
+    const value = screen.getByText(SUB_URL);
+
+    // …but still blurred, behind a Reveal, because the dialog can be open while somebody
+    // glances over. Asserted on the class rather than only on the Reveal control, so
+    // dropping the blur while keeping the button would fail.
+    expect(value.className).toContain("blur-");
+    expect(screen.getAllByRole("button", { name: "Reveal" }).length).toBeGreaterThan(0);
+
+    // And the code is still not drawn, because it is the part a stranger can capture
+    // without touching the device at all.
     expect(screen.queryByRole("img")).toBeNull();
 
     await u.click(screen.getByRole("button", { name: /Show subscription link as a QR code/i }));
     expect(await screen.findByRole("img")).toBeTruthy();
     expect(screen.getByText(/Anyone who can see this code/i)).toBeTruthy();
+  });
+
+  it("unblurs a link only when Reveal is pressed", async () => {
+    const u = userEvent.setup();
+    stubFetch(() => json(payload()));
+    render(<AccessPage token={TOKEN} />);
+    await screen.findByText("Ivan");
+    await u.click(screen.getByRole("button", { name: /Amsterdam/ }));
+
+    expect(screen.getByText(SUB_URL).className).toContain("blur-");
+    await u.click(screen.getAllByRole("button", { name: "Reveal" })[0]!);
+    expect(screen.getByText(SUB_URL).className).not.toContain("blur-");
   });
 
   it("does not offer details for an entry it could not confirm", async () => {
