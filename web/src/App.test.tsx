@@ -9,6 +9,7 @@ import { ApiProvider } from "./api/ApiProvider";
 import { ApiDispatcher } from "./api/dispatcher";
 import { makeQueryClient } from "./queries/client";
 import { ReloadWatch, ReloadWatchProvider } from "./queries/reloadWatch";
+import { makeFake } from "./test/fake";
 import type { Method, RequestOptions, Transport } from "./api/transport";
 import type { Server } from "./api/types";
 
@@ -162,5 +163,58 @@ describe("sign in and out", () => {
     });
     expect(screen.getByLabelText("Password")).toBeTruthy();
     spy.mockRestore();
+  });
+});
+
+/**
+ * Only the state machine, because that is all jsdom can see: which layout the header is
+ * wearing is decided by a media query, and there is no stylesheet here. What is worth
+ * protecting is that the button reports its state and that following a link puts the menu
+ * away — a menu still standing open over the page it just navigated to is the classic bug
+ * in this pattern.
+ */
+describe("the phone menu", () => {
+  function renderSignedIn() {
+    const fake = makeFake({ servers: [], users: {}, subscribers: [] });
+    render(
+      <ApiProvider dispatcher={new ApiDispatcher(fake.transport)}>
+        <QueryClientProvider client={makeQueryClient()}>
+          <ReloadWatchProvider value={new ReloadWatch()}>
+            <MemoryRouter>
+              <App />
+            </MemoryRouter>
+          </ReloadWatchProvider>
+        </QueryClientProvider>
+      </ApiProvider>,
+    );
+  }
+
+  it("opens, and closes again on navigation", async () => {
+    const user = userEvent.setup();
+    renderSignedIn();
+
+    const opener = await screen.findByRole("button", { name: "Open the menu" });
+    expect(opener.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(opener);
+    const closer = screen.getByRole("button", { name: "Close the menu" });
+    expect(closer.getAttribute("aria-expanded")).toBe("true");
+    expect(closer.getAttribute("aria-controls")).toBe("site-menu");
+
+    await user.click(screen.getByRole("link", { name: "Subscribers" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Open the menu" })).toBeTruthy();
+    });
+  });
+
+  it("closes on Escape", async () => {
+    const user = userEvent.setup();
+    renderSignedIn();
+
+    await user.click(await screen.findByRole("button", { name: "Open the menu" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: "Open the menu" })).toBeTruthy();
   });
 });

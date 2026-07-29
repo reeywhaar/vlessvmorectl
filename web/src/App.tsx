@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { Boundary } from "./components/Boundary";
 import { ErrorState } from "./components/ErrorState";
-import { Button, MoonIcon, Skeleton, SunIcon, cx } from "./components/ui";
+import { Button, CloseIcon, MenuIcon, MoonIcon, Skeleton, SunIcon, cx } from "./components/ui";
 import { LoginPage } from "./routes/LoginPage";
 import { OverviewPage } from "./routes/OverviewPage";
 import { ServerPage } from "./routes/ServerPage";
@@ -90,6 +90,7 @@ function Shell({
   const logout = useLogout();
   const { theme, toggle } = useTheme();
   const { pathname } = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // The overview is at "/" and its detail pages are at "/servers/:id", so this tab is lit
   // by two unrelated paths. NavLink's `end` matches only the first and its default
@@ -98,45 +99,102 @@ function Shell({
   const onServers = pathname === "/" || pathname.startsWith("/servers");
   const onSubscribers = pathname.startsWith("/subscribers");
 
+  // Arriving somewhere new folds the menu away. Tapping the tab you are already on leaves
+  // the path alone, so the links close it themselves as well.
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
   return (
     <div className="min-h-full">
-      <header className="border-b border-line bg-card">
-        <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
+      {/* Escape closes the menu. A listener on the header rather than the document is
+          enough: the only way to have opened it is to have pressed its button, so focus
+          is inside here. */}
+      <header
+        className="border-b border-line bg-card"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setMenuOpen(false);
+        }}
+      >
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
           <Link to="/" className="flex items-center gap-2">
             <img src="/favicon.svg" alt="" width={26} height={26} />
             <span className="font-semibold">vlessvmore</span>
           </Link>
 
-          <nav className="ml-4 flex gap-1 text-sm">
-            <Link
-              to="/"
-              className={cx("rounded-lg px-2 py-1", onServers ? "bg-line" : "text-muted hover:text-ink")}
-            >
-              Servers
-            </Link>
-            <Link
-              to="/subscribers"
-              className={cx("rounded-lg px-2 py-1", onSubscribers ? "bg-line" : "text-muted hover:text-ink")}
-            >
-              Subscribers
-            </Link>
-          </nav>
+          <Button
+            variant="ghost"
+            className="ml-auto sm:hidden"
+            aria-expanded={menuOpen}
+            aria-controls="site-menu"
+            aria-label={menuOpen ? "Close the menu" : "Open the menu"}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            {menuOpen ? <CloseIcon /> : <MenuIcon />}
+          </Button>
 
-          <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-sm text-muted sm:inline">{username}</span>
-            <Button
-              variant="ghost"
-              onClick={toggle}
-              aria-label={theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
-            >
-              {theme === "dark" ? <MoonIcon /> : <SunIcon />}
-            </Button>
-            <Button
-              onClick={() => logout.mutate(undefined, { onSuccess: onSignedOut })}
-              disabled={logout.isPending}
-            >
-              Sign out
-            </Button>
+          {/*
+            One copy of the tabs and the account controls, not a phone set and a desktop
+            set. The row above is `flex-wrap`, so at phone width this box takes a full line
+            of its own and stacks below the wordmark; from `sm` up it collapses back into
+            the row and the burger disappears.
+
+            Rendering the two layouts as separate subtrees would have been easier to read
+            and wrong: every control would exist twice in the accessible tree, and the copy
+            hidden by a media query is still a duplicate name for anything that searches
+            the DOM rather than looks at the screen.
+          */}
+          <div
+            id="site-menu"
+            className={cx(
+              menuOpen ? "flex w-full flex-col gap-3 pb-1" : "hidden",
+              "sm:flex sm:w-auto sm:flex-1 sm:flex-row sm:items-center sm:gap-4 sm:pb-0",
+            )}
+          >
+            <nav className="flex flex-col gap-1 text-sm sm:ml-4 sm:flex-row">
+              <Link
+                to="/"
+                onClick={() => setMenuOpen(false)}
+                className={cx(
+                  "rounded-lg px-3 py-2 sm:px-2 sm:py-1",
+                  onServers ? "bg-line" : "text-muted hover:text-ink",
+                )}
+              >
+                Servers
+              </Link>
+              <Link
+                to="/subscribers"
+                onClick={() => setMenuOpen(false)}
+                className={cx(
+                  "rounded-lg px-3 py-2 sm:px-2 sm:py-1",
+                  onSubscribers ? "bg-line" : "text-muted hover:text-ink",
+                )}
+              >
+                Subscribers
+              </Link>
+            </nav>
+
+            <div className="flex items-center gap-2 border-t border-line pt-3 sm:ml-auto sm:border-t-0 sm:pt-0">
+              {/* Hidden in the bar at phone width for want of room, but there is room for
+                  it here — and inside a menu that signs you out, whose account this is
+                  matters. */}
+              <span className="min-w-0 truncate text-sm text-muted">{username}</span>
+              <div className="ml-auto flex items-center gap-2 sm:ml-0">
+                <Button
+                  variant="ghost"
+                  onClick={toggle}
+                  aria-label={theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"}
+                >
+                  {theme === "dark" ? <MoonIcon /> : <SunIcon />}
+                </Button>
+                <Button
+                  onClick={() => logout.mutate(undefined, { onSuccess: onSignedOut })}
+                  disabled={logout.isPending}
+                >
+                  Sign out
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </header>

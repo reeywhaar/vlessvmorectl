@@ -349,6 +349,22 @@ export function MoonIcon() {
   );
 }
 
+export function MenuIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </svg>
+  );
+}
+
+export function CloseIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
 export function QrIcon() {
   return (
     <svg {...iconProps}>
