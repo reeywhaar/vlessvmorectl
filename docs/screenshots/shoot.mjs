@@ -237,8 +237,13 @@ await fitHeight();
 await shot("server");
 
 // --- 4. the user drawer ---
-await clickText("table tbody tr", "alice-phone");
-await waitFor("dialog svg[role='img']");
+//
+// Waits for the credential rows, not for a QR: the codes moved behind a button — a QR is
+// the one credential a bystander can photograph off a shared screen — so nothing in this
+// drawer draws one until it is asked to. The <code> elements arrive with the link query,
+// which is the last of the drawer's fetches to land.
+await clickText("table tbody tr", "bellamy-phone");
+await waitFor("dialog[open] code");
 await sleep(1600); // the usage chart is a lazily loaded chunk
 await fitDialogHeight();
 await shot("user");
@@ -258,7 +263,10 @@ await shot("subscribers");
 if (SHARE_TOKEN) {
   await send("Network.clearBrowserCookies");
   await navigate(`/access/${SHARE_TOKEN}`);
-  await waitFor("main svg[role='img']");
+  // Same as the drawer: the QR codes here are behind a button, so wait for the credential
+  // rows instead. They only render once the panel has asked every node about the accounts
+  // this token unlocks, which is the slow part of the page.
+  await waitFor("main code");
   await sleep(1000);
   await fitHeight();
   await shot("access");

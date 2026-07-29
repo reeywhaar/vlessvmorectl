@@ -58,36 +58,44 @@ function usage({ windowTotal, lifetime, quota }) {
   };
 }
 
+/**
+ * The demo accounts.
+ *
+ * `bellamy-phone` and `bellamy-laptop` are one person on two nodes, which is the case the
+ * subscriber feature exists for — capture.sh attaches exactly those two to a subscriber,
+ * by name. Renaming one here without renaming it there fails the capture rather than
+ * quietly shooting a share page with nothing on it.
+ */
 const NODES = {
   8801: {
     name: "Amsterdam",
     host: "vpn-nl.example.com",
     users: [
-      { name: "alice", note: "laptop", quota: 0, win: 41.3 * GB, life: 214 * GB },
-      { name: "alice-phone", note: "iPhone 15", quota: 100 * GB, win: 63.7 * GB, life: 88 * GB },
-      { name: "bruno", quota: 250 * GB, win: 12.1 * GB, life: 12.1 * GB },
-      { name: "camille", note: "contractor", quota: 50 * GB, win: 50 * GB, life: 137 * GB, enabled: false, reason: "quota" },
-      { name: "dmitri", quota: 0, win: 7.4 * GB, life: 402 * GB, expires: days(4) },
-      { name: "elena", note: "tablet", quota: 500 * GB, win: 188 * GB, life: 613 * GB },
-      { name: "farid", note: "old laptop", quota: 0, win: 0, life: 3.2 * GB, enabled: false },
+      { name: "collet", note: "laptop", quota: 0, win: 41.3 * GB, life: 214 * GB },
+      { name: "bellamy-phone", note: "iPhone 15", quota: 100 * GB, win: 63.7 * GB, life: 88 * GB },
+      { name: "vernet", quota: 250 * GB, win: 12.1 * GB, life: 12.1 * GB },
+      { name: "trish", note: "contractor", quota: 50 * GB, win: 50 * GB, life: 137 * GB, enabled: false, reason: "quota" },
+      { name: "aringarosa", quota: 0, win: 7.4 * GB, life: 402 * GB, expires: days(4) },
+      { name: "gettum", note: "tablet", quota: 500 * GB, win: 188 * GB, life: 613 * GB },
+      { name: "sandrine", note: "old laptop", quota: 0, win: 0, life: 3.2 * GB, enabled: false },
     ],
   },
   8802: {
     name: "Frankfurt",
     host: "vpn-de.example.com",
     users: [
-      { name: "greta", quota: 200 * GB, win: 91.5 * GB, life: 340 * GB },
-      { name: "hugo", note: "work", quota: 0, win: 22.8 * GB, life: 22.8 * GB },
-      { name: "iris", quota: 100 * GB, win: 97.2 * GB, life: 97.2 * GB },
-      { name: "jonas", note: "spare", quota: 0, win: 0.4 * GB, life: 0.4 * GB, expires: days(21) },
+      { name: "bellamy-laptop", note: "work", quota: 0, win: 22.8 * GB, life: 22.8 * GB },
+      { name: "kohler", quota: 200 * GB, win: 91.5 * GB, life: 340 * GB },
+      { name: "chartrand", quota: 100 * GB, win: 97.2 * GB, life: 97.2 * GB },
+      { name: "glick", note: "spare", quota: 0, win: 0.4 * GB, life: 0.4 * GB, expires: days(21) },
     ],
   },
   8803: {
     host: "vpn-sg.example.com",
     users: [
-      { name: "kenji", quota: 0, win: 156 * GB, life: 1_204 * GB },
-      { name: "lena", note: "travel", quota: 300 * GB, win: 45.9 * GB, life: 45.9 * GB },
-      { name: "marco", note: "expired trial", quota: 20 * GB, win: 20 * GB, life: 20 * GB, enabled: false, reason: "expired", expires: ago(3) },
+      { name: "sato", quota: 0, win: 156 * GB, life: 1_204 * GB },
+      { name: "nola", note: "travel", quota: 300 * GB, win: 45.9 * GB, life: 45.9 * GB },
+      { name: "vayentha", note: "expired trial", quota: 20 * GB, win: 20 * GB, life: 20 * GB, enabled: false, reason: "expired", expires: ago(3) },
     ],
   },
 };

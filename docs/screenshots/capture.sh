@@ -17,7 +17,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 work="$(mktemp -d)"
 
-WIDTH="${WIDTH:-600}"
+# Above the panel's `sm` breakpoint (640), and deliberately so: below it the header folds
+# its tabs into a burger menu, and a set of screenshots where every one hides the
+# navigation shows the panel as something it is not.
+WIDTH="${WIDTH:-720}"
 THEME="${THEME:-dark}"
 
 # The panel's listen port is not configurable — it is :80 inside a container and the
@@ -103,32 +106,73 @@ curl -fsS -c "$work/ck" -X POST "$PANEL_URL/api/login" \
 cookie=$(awk '/vlessvmore_auth/ {print $7}' "$work/ck")
 [ -n "$cookie" ] || { echo "could not sign in"; cat "$work/panel.log"; exit 1; }
 
-# Seed a subscriber through the panel's own API rather than by writing subscribers.json.
+# Seed the subscribers through the panel's own API rather than by writing
+# subscribers.json.
 #
 # Two reasons. The daemon is the only writer of that file and refuses to save over an
 # outside edit, so a hand-written seed would make the first UI change in the capture fail;
 # and going through the API means these screenshots exercise the real create-and-attach
 # path, so a break in it shows up here rather than in production.
-echo "==> seeding a subscriber"
+echo "==> seeding subscribers"
 api() { curl -fsS -b "$work/ck" -H 'Content-Type: application/json' "$@"; }
 
-subscriber=$(api -X POST "$PANEL_URL/api/subscribers" \
-  -d '{"name":"Ivan Petrov","note":"paid to August"}')
-subscriber_id=$(printf '%s' "$subscriber" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p' | head -1)
-share_token=$(printf '%s' "$subscriber" | sed -n 's/.*"token": *"\([^"]*\)".*/\1/p' | head -1)
-[ -n "$subscriber_id" ] || { echo "could not create a subscriber: $subscriber"; exit 1; }
+# Read one value out of a JSON document on stdin, as a JavaScript expression over `d`.
+#
+# This was `sed`, and `sed` could not do it: the panel pretty-prints, so a pattern spanning
+# an "id" and the "url" on the *next* line never matched. The attach below was skipped, the
+# subscriber ended up with no accounts, and the run then failed two shots later on a share
+# page with nothing to show — 15 seconds of timeout, pointing at the wrong thing entirely.
+# node is already a hard requirement of this script.
+jget() {
+  node -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => (raw += chunk)).on("end", () => {
+      const expr = process.argv[1];
+      let value;
+      try {
+        value = new Function("d", "return " + expr)(JSON.parse(raw));
+      } catch (err) {
+        console.error(expr + ": " + err.message);
+        process.exit(1);
+      }
+      if (value === undefined || value === null) {
+        console.error(expr + ": no match");
+        process.exit(1);
+      }
+      process.stdout.write(String(value));
+    });
+  ' "$1"
+}
 
-# One account on each of two nodes, which is the case the whole feature exists for: a
-# person whose accounts live in more than one place.
+# Both by name, never by a hardcoded id. The stub mints ids from a user's position in its
+# own list, so a literal id here is a bet on that list never being reordered — a bet this
+# script already lost once.
+node_id() { printf '%s' "$servers" | jget "d.servers.find(s => s.url.endsWith(':$1')).id"; }
+account_id() { curl -fsS "http://127.0.0.1:$1/api/users" | jget "d.users.find(u => u.name === '$2').id"; }
+
+# No `|| true`. An attach that fails is the difference between the feature's screenshot and
+# an empty state, and it is better to hear about it here than to read it in the README.
+attach() { # subscriber-id port account-name label
+  api -X POST "$PANEL_URL/api/subscribers/$1/entries" \
+    -d "{\"server_id\":\"$(node_id "$2")\",\"vless_user_id\":\"$(account_id "$2" "$3")\",\"label\":\"$4\"}" \
+    -o /dev/null
+}
+
 servers=$(api "$PANEL_URL/api/servers")
-nl_id=$(printf '%s' "$servers" | sed -n 's/.*"id": *"\([^"]*\)",[[:space:]]*"url": *"http:\/\/127.0.0.1:8801".*/\1/p' | head -1)
-de_id=$(printf '%s' "$servers" | tr -d '\n' | sed -n 's/.*"id": *"\([^"]*\)",[[:space:]]*"url": *"http:\/\/127.0.0.1:8802".*/\1/p' | head -1)
-for pair in "$nl_id:u_0B4X6TWQ8ZKM3N1PVJHR5DGYAC:phone" "$de_id:u_1C5Y7UXR9ALN4P2QWKIS6EHZBD:laptop"; do
-  sid="${pair%%:*}"; rest="${pair#*:}"; uid="${rest%%:*}"; label="${rest#*:}"
-  [ -n "$sid" ] || continue
-  api -X POST "$PANEL_URL/api/subscribers/$subscriber_id/entries" \
-    -d "{\"server_id\":\"$sid\",\"vless_user_id\":\"$uid\",\"label\":\"$label\"}" -o /dev/null || true
-done
+
+# One person with an account on each of two nodes — the case the whole feature exists for
+# — and one with a single account that has run out of data, so the list has something in
+# its "needs attention" column.
+bellamy=$(api -X POST "$PANEL_URL/api/subscribers" \
+  -d '{"name":"Warren Bellamy","note":"paid to August"}')
+bellamy_id=$(printf '%s' "$bellamy" | jget "d.id")
+share_token=$(printf '%s' "$bellamy" | jget "d.token")
+attach "$bellamy_id" 8801 bellamy-phone phone
+attach "$bellamy_id" 8802 bellamy-laptop laptop
+
+trish=$(api -X POST "$PANEL_URL/api/subscribers" \
+  -d '{"name":"Trish Dunne","note":"contractor, until the audit ships"}')
+attach "$(printf '%s' "$trish" | jget "d.id")" 8801 trish laptop
 
 echo "==> starting headless chromium"
 "$chromium" --headless=new --remote-debugging-port=9222 \

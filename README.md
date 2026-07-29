@@ -34,6 +34,18 @@ users; this only asks and tells.
 Real captures of the panel; only the data is invented. Regenerate them with
 [`docs/screenshots/capture.sh`](docs/screenshots/capture.sh).
 
+## Contents
+
+- [How it fits together](#how-it-fits-together) — the proxy, and why a browser never holds a node token
+- [Install](#install) — mint a token, `docker compose up`, create the first administrator
+- [Configuration](#configuration) — one environment variable that matters
+- [The CLI](#the-cli) — panel logins; VPN users live on the nodes
+- [Subscribers, and the page you hand them](#subscribers-and-the-page-you-hand-them) — one link per person, and what that link is worth
+- [Things worth knowing](#things-worth-knowing) — silent reload failures, quota counters, capability URLs
+- [Security](#security) — what keeps `/api/proxy` from being a liability
+- [Development](#development) — tests, and where the 7 MB goes
+- [Not implemented](#not-implemented) — including one thing that never will be
+
 ## How it fits together
 
 ```
@@ -208,6 +220,14 @@ A **subscriber** is a person, not an account. Create one, attach the VPN account
 — on any number of nodes — and copy their share link. Opening it needs no login and shows,
 for each account: which server, whether it is working, how much data is left, when it
 expires, the `vless://` link, the subscription URL and QR codes for both.
+
+Attaching works from both ends, because either end can be where you are standing when the
+question comes up. A subscriber's drawer lists their connections and has **Attach an
+account**; a VPN user's own drawer has an **Assigned to** row that does the same in
+reverse, for when you have just created an account and are already looking at it. The list
+carries a per-person count of connections that need attention — out of data, expired,
+switched off, deleted from its node, or on a node this panel no longer has configured — so
+"who is about to complain" is answered without opening anybody.
 
 This is the one thing the panel owns that a node does not. An attachment is a *reference*
 — a node id and an account id — never a copy: nothing is snapshotted, so a subscriber
