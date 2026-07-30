@@ -17,12 +17,10 @@ const SessionsFile = "sessions.json"
 type PersistedSession struct {
 	Hash string `json:"hash"`
 
-	// AdminID is who this session belongs to. Rows written before it existed are dropped
-	// on restore rather than guessed at; see session.New.
+	// AdminID is who this session belongs to. No username beside it: the auth middleware
+	// reads that from admins.json on every request, so a copy here would only ever be a
+	// stale one waiting for somebody to rename themselves.
 	AdminID string `json:"admin_id"`
-
-	// Username is a label for logs and hand-inspection only. AdminID is the identity.
-	Username string `json:"username"`
 
 	// Fingerprint is hex of sha256(admin.PasswordHash)[:8] as of login. Persisting it is
 	// what makes "changing a password signs them out everywhere" survive a restart: on

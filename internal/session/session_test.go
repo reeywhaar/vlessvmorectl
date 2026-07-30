@@ -263,8 +263,13 @@ func TestSurvivesARestart(t *testing.T) {
 	if !ok {
 		t.Fatal("the session did not survive the restart")
 	}
-	if rec.Username != "alice" || rec.Fingerprint != fp {
+	if rec.AdminID != aliceID || rec.Fingerprint != fp {
 		t.Errorf("restored record: %+v", rec)
+	}
+	// The username is not persisted — the auth middleware fills it from admins.json — so a
+	// restored record carries none.
+	if rec.Username != "" {
+		t.Errorf("Username = %q, want empty on a restored record", rec.Username)
 	}
 }
 
@@ -382,7 +387,6 @@ func TestRestoreDropsRowsWithoutAnAdminID(t *testing.T) {
 	if err := file.Save([]store.PersistedSession{
 		{
 			Hash:        hex.EncodeToString(legacyHash[:]),
-			Username:    "alice",
 			Fingerprint: hex.EncodeToString(fp[:]),
 			CreatedAt:   now,
 			LastSeenAt:  now,
@@ -391,7 +395,6 @@ func TestRestoreDropsRowsWithoutAnAdminID(t *testing.T) {
 		{
 			Hash:        hex.EncodeToString(currentHash[:]),
 			AdminID:     bobID,
-			Username:    "bob",
 			Fingerprint: hex.EncodeToString(fp[:]),
 			CreatedAt:   now,
 			LastSeenAt:  now,

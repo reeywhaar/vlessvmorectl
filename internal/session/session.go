@@ -54,8 +54,8 @@ const (
 
 // Record is a live session.
 type Record struct {
-	// AdminID names the administrator. Username is only a cached label for display, and
-	// can be stale after a rename — read it from the store when it matters.
+	// AdminID names the administrator. Username is filled in by the auth middleware from
+	// the live record, so it is not persisted and is empty on a freshly restored session.
 	AdminID  string
 	Username string
 
@@ -130,16 +130,14 @@ func New(storage Storage, log *slog.Logger) *Table {
 			dropped++
 			continue
 		}
-		// Written before sessions named an admin id. Resolving the username would mean
-		// handing this package the admin store, which it deliberately does not have, so
-		// these are dropped and those people sign in once more.
+		// A row with nobody to belong to. Nothing to resolve it against — this package has
+		// no admin store on purpose — so it goes.
 		if p.AdminID == "" {
 			dropped++
 			continue
 		}
 		t.byID[[32]byte(key)] = &Record{
 			AdminID:     p.AdminID,
-			Username:    p.Username,
 			Fingerprint: [8]byte(fp),
 			CreatedAt:   p.CreatedAt,
 			LastSeenAt:  p.LastSeenAt,
@@ -173,7 +171,6 @@ func (t *Table) flushLocked() {
 		list = append(list, store.PersistedSession{
 			Hash:        hex.EncodeToString(key[:]),
 			AdminID:     r.AdminID,
-			Username:    r.Username,
 			Fingerprint: hex.EncodeToString(r.Fingerprint[:]),
 			CreatedAt:   r.CreatedAt,
 			LastSeenAt:  r.LastSeenAt,
