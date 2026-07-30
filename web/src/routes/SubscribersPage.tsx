@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { Badge, Button, EmptyState, PageHeader, cx } from "../components/ui";
-import { userState } from "../lib/format";
+import { formatBytes } from "../lib/format";
 import { useServers, useSubscribers, useUsersByServer } from "../queries/hooks";
 import { CreateSubscriberDialog } from "../features/subscribers/CreateSubscriberDialog";
 import { SubscriberDrawer } from "../features/subscribers/SubscriberDrawer";
-import { resolveEntries } from "../features/subscribers/resolve";
+import { resolveEntries, summariseEntries } from "../features/subscribers/resolve";
 import type { Subscriber } from "../api/types";
 
 /**
@@ -64,12 +64,13 @@ export function SubscribersPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Connections</th>
+                <th className="px-4 py-3 text-right font-medium">Used</th>
                 <th className="px-4 py-3 font-medium">Needs attention</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ subscriber, servers: serverCount, problems, pending }) => (
+              {rows.map(({ subscriber, servers: serverCount, problems, pending, used, partialUsage }) => (
                 <tr
                   key={subscriber.id}
                   tabIndex={0}
@@ -103,6 +104,20 @@ export function SubscribersPage() {
                           serverCount === 1 ? "server" : "servers"
                         }`}
                   </td>
+                  {/* Every attached account's traffic, added up. `≥` when at least one of
+                      them could not be read, because a sum that is missing a node is a floor
+                      and printing it as a total is the one way this column can lie. */}
+                  <td className="tnum px-4 py-3 text-right">
+                    {subscriber.entries.length === 0 ? (
+                      <span className="text-muted">—</span>
+                    ) : partialUsage ? (
+                      <span title="At least this much: some accounts could not be read.">
+                        ≥ {formatBytes(used)}
+                      </span>
+                    ) : (
+                      formatBytes(used)
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {/* A dash while the nodes are still answering, and a question mark
                         when one of them did not: "we don't know" and "nothing wrong" are
@@ -131,27 +146,15 @@ export function SubscribersPage() {
   );
 }
 
-/** Counts what an operator would want to act on, without asking a node anything extra. */
+/** What an operator would want to act on, plus the traffic, without asking a node anything
+ *  extra: the join is over the user lists this page already holds. */
 function summarise(
   subscriber: Subscriber,
   servers: Parameters<typeof resolveEntries>[1],
   nodes: Parameters<typeof resolveEntries>[2],
 ) {
-  const resolved = resolveEntries(subscriber.entries, servers, nodes);
-  let problems = 0;
-  let pending = false;
-
-  for (const r of resolved) {
-    if (r.nodeState === "unconfigured") problems++;
-    else if (r.nodeState === "loading") pending = true;
-    else if (r.nodeState === "failed") pending = true;
-    else if (!r.user) problems++;
-    else if (userState(r.user).kind !== "active") problems++;
-  }
-
   return {
-    problems,
-    pending,
+    ...summariseEntries(resolveEntries(subscriber.entries, servers, nodes)),
     servers: new Set(subscriber.entries.map((e) => e.server_id)).size,
   };
 }

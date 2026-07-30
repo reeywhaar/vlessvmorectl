@@ -1,5 +1,6 @@
 import type { Server, SubscriberEntry, VlessUser } from "../../api/types";
 import type { NodeUsers } from "../../queries/hooks";
+import { userState } from "../../lib/format";
 
 /**
  * How an entry looks once the panel's reference has been matched against live node data.
@@ -66,4 +67,47 @@ export function resolveEntries(
       nodeState: "ok" as const,
     };
   });
+}
+
+/** One subscriber, reduced to the three things the list column shows. */
+export interface EntrySummary {
+  /** Accounts an operator would want to act on. */
+  problems: number;
+  /** True while some node has not answered, or has answered badly. */
+  pending: boolean;
+  /** Traffic since each account's own quota window opened, summed. */
+  used: number;
+  /** True when at least one account contributed nothing to `used` — so the figure is a
+   *  floor rather than a total, and must not be shown as if it were one. */
+  partialUsage: boolean;
+}
+
+/**
+ * What the subscribers list says about one person, from data the panel already has.
+ *
+ * `used` sums each account's window_total, which is the same figure the server page calls
+ * "Used". Those windows open when an operator resets a quota, so two accounts can be
+ * counting from different days — the sum answers "how much has this person moved lately",
+ * not "how much since a shared instant".
+ */
+export function summariseEntries(resolved: ResolvedEntry[]): EntrySummary {
+  let problems = 0;
+  let pending = false;
+  let used = 0;
+  let partialUsage = false;
+
+  for (const r of resolved) {
+    if (r.nodeState === "unconfigured") problems++;
+    else if (r.nodeState === "loading") pending = true;
+    else if (r.nodeState === "failed") pending = true;
+    else if (!r.user) problems++;
+    else if (userState(r.user).kind !== "active") problems++;
+
+    // Every case without an account is usage we cannot see: a node that has not answered,
+    // one that failed, a server no longer configured, an account deleted on its node.
+    if (r.user) used += r.user.usage?.window_total ?? 0;
+    else partialUsage = true;
+  }
+
+  return { problems, pending, used, partialUsage };
 }
