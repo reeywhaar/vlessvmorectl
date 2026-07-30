@@ -30,7 +30,7 @@ import {
 import { Tri } from "../../api/patch";
 import { PRESETS, snapRange, type Preset, type SnappedRange } from "../../lib/range";
 import { formatBytes, formatDateTime, parseBytes, quotaState, userState } from "../../lib/format";
-import { zeroFill } from "../usage/series";
+import { groupByHours, zeroFill } from "../usage/series";
 import type { QRMatrix, Server, VlessUser } from "../../api/types";
 
 // recharts is ~90 kB and only this drawer needs it, so login and the overview never pay
@@ -461,6 +461,7 @@ function Usage({ server, user }: { server: Server; user: VlessUser }) {
           server={server}
           user={user}
           range={range}
+          group={preset.group}
           asTable={asTable}
           pending={isPending}
         />
@@ -474,7 +475,7 @@ function Usage({ server, user }: { server: Server; user: VlessUser }) {
           <span className="size-2 rounded-sm bg-[var(--color-series-up)]" aria-hidden /> Up
         </span>
         <span className="ml-auto">
-          The final bucket is still accumulating, and is shown faded.
+          The final column is still accumulating, and is shown faded.
         </span>
       </div>
     </section>
@@ -485,17 +486,24 @@ function UsageBody({
   server,
   user,
   range,
+  group,
   asTable,
   pending,
 }: {
   server: Server;
   user: VlessUser;
   range: SnappedRange;
+  group: number;
   asTable: boolean;
   pending: boolean;
 }) {
   const { data, isFetching } = useUserUsage(server, user.id, range);
-  const points = useMemo(() => zeroFill(data.series, range), [data.series, range]);
+  // Grouped here rather than in the request: the node aggregates by hour or by day and
+  // nothing else, so a week's worth of readable columns is this side's problem.
+  const points = useMemo(
+    () => groupByHours(zeroFill(data.series, range), group),
+    [data.series, range, group],
+  );
 
   // Dimmed while a new range is arriving or a poll is in flight — enough to say
   // "working" without throwing the previous answer away.

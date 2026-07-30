@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { byteTickLabel, byteTicks, dayBoundaries, zeroFill, type FilledPoint } from "./series";
+import {
+  byteTickLabel,
+  byteTicks,
+  dayBoundaries,
+  groupByHours,
+  zeroFill,
+  type FilledPoint,
+} from "./series";
 import { HOUR_MS, snapRange, type SnappedRange } from "../../lib/range";
 import { parseBytes } from "../../lib/format";
 
@@ -85,18 +92,65 @@ describe("zeroFill", () => {
   });
 });
 
-describe("dayBoundaries", () => {
-  /** Hourly buckets from a local midnight, which is what the 7-day chart is made of. */
-  function hourly(start: number, count: number): FilledPoint[] {
-    return Array.from({ length: count }, (_, i) => ({
-      t: start + i * H,
-      up: 0,
-      down: 0,
-      total: 0,
-      partial: i === count - 1,
-    }));
-  }
+/** Hourly buckets from a given local time, which is what the hourly charts are made of. */
+function hourly(start: number, count: number): FilledPoint[] {
+  return Array.from({ length: count }, (_, i) => ({
+    t: start + i * H,
+    up: 1,
+    down: 2,
+    total: 3,
+    partial: i === count - 1,
+    span: 1,
+  }));
+}
 
+describe("groupByHours", () => {
+  it("sums four hourly buckets into one column", () => {
+    const midnight = new Date(2026, 6, 27, 0, 0, 0, 0).getTime();
+    const grouped = groupByHours(hourly(midnight, 24), 4);
+
+    expect(grouped).toHaveLength(6);
+    expect(grouped[0]).toMatchObject({ t: midnight, up: 4, down: 8, total: 12, span: 4 });
+  });
+
+  /**
+   * Grouped on the local hour, so a column never straddles local midnight — otherwise the
+   * day boundary this chart draws would sit inside a column rather than at its edge.
+   */
+  it("starts a column at every local multiple of the group size", () => {
+    const midnight = new Date(2026, 6, 27, 0, 0, 0, 0).getTime();
+    const hours = groupByHours(hourly(midnight, 48), 4).map((p) => new Date(p.t).getHours());
+
+    expect(hours).toEqual([0, 4, 8, 12, 16, 20, 0, 4, 8, 12, 16, 20]);
+    expect(dayBoundaries(groupByHours(hourly(midnight, 48), 4))).toHaveLength(1);
+  });
+
+  /** The window starts where it starts, so the leftmost column can be short — and says so. */
+  it("keeps a short leading column rather than dropping or padding it", () => {
+    const twoPm = new Date(2026, 6, 27, 14, 0, 0, 0).getTime();
+    const grouped = groupByHours(hourly(twoPm, 6), 4);
+
+    expect(grouped.map((p) => p.span)).toEqual([2, 4]);
+    expect(grouped[0]).toMatchObject({ t: twoPm, total: 6 });
+  });
+
+  /** The fade and the "(current)" marker follow the accumulating bucket into its column. */
+  it("marks the column holding the accumulating bucket partial", () => {
+    const midnight = new Date(2026, 6, 27, 0, 0, 0, 0).getTime();
+    const grouped = groupByHours(hourly(midnight, 6), 4);
+
+    expect(grouped.map((p) => p.partial)).toEqual([false, true]);
+  });
+
+  it("returns the points untouched for a group of one", () => {
+    const points = hourly(new Date(2026, 6, 27, 0, 0, 0, 0).getTime(), 3);
+
+    expect(groupByHours(points, 1)).toBe(points);
+    expect(groupByHours([], 4)).toEqual([]);
+  });
+});
+
+describe("dayBoundaries", () => {
   it("marks the first bucket of each day but not the first bucket of the range", () => {
     const midnight = new Date(2026, 6, 27, 0, 0, 0, 0).getTime();
 
@@ -204,7 +258,7 @@ describe("snapRange", () => {
    */
   it("snaps from down to a bucket boundary", () => {
     const now = Date.parse("2026-07-27T05:37:42Z");
-    const r = snapRange({ label: "24 hours", bucket: "hour", buckets: 24 }, now);
+    const r = snapRange({ label: "24 hours", bucket: "hour", buckets: 24, group: 1 }, now);
 
     expect(new Date(r.end).toISOString()).toBe("2026-07-27T05:00:00.000Z");
     expect(new Date(r.from).toISOString()).toBe("2026-07-26T06:00:00.000Z");
@@ -212,7 +266,7 @@ describe("snapRange", () => {
   });
 
   it("produces the same range for any instant inside one hour", () => {
-    const preset = { label: "24 hours", bucket: "hour", buckets: 24 } as const;
+    const preset = { label: "24 hours", bucket: "hour", buckets: 24, group: 1 } as const;
     const a = snapRange(preset, Date.parse("2026-07-27T05:00:01Z"));
     const b = snapRange(preset, Date.parse("2026-07-27T05:59:59Z"));
 
@@ -221,7 +275,7 @@ describe("snapRange", () => {
 
   it("snaps day buckets to UTC midnight", () => {
     const now = Date.parse("2026-07-27T23:59:00Z");
-    const r = snapRange({ label: "30 days", bucket: "day", buckets: 30 }, now);
+    const r = snapRange({ label: "30 days", bucket: "day", buckets: 30, group: 1 }, now);
 
     expect(new Date(r.end).toISOString()).toBe("2026-07-27T00:00:00.000Z");
   });

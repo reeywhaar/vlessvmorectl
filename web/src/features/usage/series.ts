@@ -10,6 +10,9 @@ export interface FilledPoint {
   total: number;
   /** True for the bucket that is still accumulating. */
   partial: boolean;
+  /** How many buckets this point covers: 1, unless groupByHours merged some. Carried so a
+   *  label can state the span a column really holds rather than the one it usually holds. */
+  span: number;
 }
 
 /**
@@ -51,7 +54,35 @@ export function zeroFill(series: UsagePoint[], r: SnappedRange): FilledPoint[] {
     const p = byBucket.get(t);
     const up = p?.up ?? 0;
     const down = p?.down ?? 0;
-    out.push({ t, up, down, total: up + down, partial: t === last });
+    out.push({ t, up, down, total: up + down, partial: t === last, span: 1 });
+  }
+  return out;
+}
+
+/**
+ * Aggregate consecutive hourly buckets into columns of `hours`.
+ *
+ * Grouped on the *local* hour, so a column never straddles local midnight: each local day
+ * owns its own columns, and dayBoundaries still lands exactly on a column start rather than
+ * three hours into one. The cost is that the leftmost column can cover fewer hours than the
+ * rest — the window starts where it starts — which is why every column carries its span.
+ */
+export function groupByHours(points: FilledPoint[], hours: number): FilledPoint[] {
+  if (hours <= 1) return points;
+
+  const out: FilledPoint[] = [];
+  for (const p of points) {
+    const open = out[out.length - 1];
+    if (!open || new Date(p.t).getHours() % hours === 0) {
+      out.push({ ...p });
+      continue;
+    }
+    open.up += p.up;
+    open.down += p.down;
+    open.total += p.total;
+    open.span += p.span;
+    // The column holding the accumulating bucket is itself still accumulating.
+    open.partial ||= p.partial;
   }
   return out;
 }

@@ -4,13 +4,21 @@ export interface Preset {
   label: string;
   bucket: Bucket;
   buckets: number;
+  /**
+   * How many buckets one column covers, aggregated in the browser.
+   *
+   * The node only groups by hour or by day, and 168 hourly columns in a card this wide are
+   * three pixels each — thinner than the gap between them, and impossible to hover. Four
+   * hours is six columns a day, which reads as a shape.
+   */
+  group: number;
 }
 
 export const PRESETS: Preset[] = [
-  { label: "24 hours", bucket: "hour", buckets: 24 },
-  { label: "7 days", bucket: "hour", buckets: 24 * 7 },
-  { label: "30 days", bucket: "day", buckets: 30 },
-  { label: "90 days", bucket: "day", buckets: 90 },
+  { label: "24 hours", bucket: "hour", buckets: 24, group: 1 },
+  { label: "7 days", bucket: "hour", buckets: 24 * 7, group: 4 },
+  { label: "30 days", bucket: "day", buckets: 30, group: 1 },
+  { label: "90 days", bucket: "day", buckets: 90, group: 1 },
 ];
 
 export interface SnappedRange {

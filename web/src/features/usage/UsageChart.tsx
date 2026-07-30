@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import { formatBytes, formatLocalDay, formatLocalHour, formatUTCDate } from "../../lib/format";
 import { byteTickLabel, byteTicks, dayBoundaries, type FilledPoint } from "./series";
-import type { Bucket } from "../../lib/range";
+import { HOUR_MS, type Bucket } from "../../lib/range";
 
 /**
  * Traffic over time.
@@ -80,7 +80,7 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
               color: "var(--color-ink)",
               fontSize: 12,
             }}
-            labelFormatter={(t) => tooltipLabel(Number(t), bucket)}
+            labelFormatter={(t, payload) => bucketLabel(Number(t), bucket, spanOf(payload))}
             formatter={(value, name) => [formatBytes(Number(value)), name === "down" ? "Down" : "Up"]}
           />
           {/* Before the bars, so the columns sit on top of the line rather than behind it. */}
@@ -132,14 +132,25 @@ function bucketShape({ x, y, width, height, fill, radius, payload }: BarShapePro
   );
 }
 
-function tooltipLabel(t: number, bucket: Bucket): string {
+/** How many buckets the hovered column covers, off the datum Recharts hands the tooltip. */
+function spanOf(payload: readonly { payload?: FilledPoint }[] | undefined): number {
+  return payload?.[0]?.payload?.span ?? 1;
+}
+
+/** What one column covers, for the tooltip and for the table's first cell. */
+function bucketLabel(t: number, bucket: Bucket, span: number): string {
   const d = new Date(t);
   if (bucket === "day") {
     // Explicitly UTC. Rendering a UTC-midnight bucket in local time labels a 2026-07-25
     // bucket as "Jul 24" anywhere west of Greenwich.
     return `${d.toLocaleDateString(undefined, { timeZone: "UTC", dateStyle: "medium" })} (UTC)`;
   }
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const start = d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  if (span <= 1) return start;
+  // The span rather than the preset's group size, so the short column at the left edge and
+  // the accumulating one at the right edge both say what they actually hold.
+  const end = new Date(t + span * HOUR_MS);
+  return `${start} – ${end.toLocaleTimeString(undefined, { timeStyle: "short" })}`;
 }
 
 /**
@@ -150,12 +161,17 @@ function tooltipLabel(t: number, bucket: Bucket): string {
  */
 export function UsageTable({ points, bucket }: { points: FilledPoint[]; bucket: Bucket }) {
   const rows = [...points].reverse();
+  // "Interval" once the columns are groups of hours: every row then names a span, and calling
+  // that column "Hour" would be describing the chart this table is a twin of, not this table.
+  const grouped = bucket === "hour" && points.some((p) => p.span > 1);
   return (
     <div className="max-h-56 overflow-y-auto rounded-lg border border-line">
       <table className="w-full text-left text-xs">
         <thead className="sticky top-0 bg-card text-muted">
           <tr>
-            <th className="px-3 py-2 font-medium">{bucket === "day" ? "Day (UTC)" : "Hour"}</th>
+            <th className="px-3 py-2 font-medium">
+              {bucket === "day" ? "Day (UTC)" : grouped ? "Interval" : "Hour"}
+            </th>
             <th className="px-3 py-2 text-right font-medium">Down</th>
             <th className="px-3 py-2 text-right font-medium">Up</th>
             <th className="px-3 py-2 text-right font-medium">Total</th>
@@ -165,7 +181,7 @@ export function UsageTable({ points, bucket }: { points: FilledPoint[]; bucket: 
           {rows.map((p) => (
             <tr key={p.t} className="border-t border-line">
               <td className="px-3 py-1.5">
-                {bucket === "day" ? formatUTCDate(p.t) : new Date(p.t).toLocaleString()}
+                {bucket === "day" ? formatUTCDate(p.t) : bucketLabel(p.t, bucket, p.span)}
                 {p.partial ? <span className="ml-1 text-muted">(current)</span> : null}
               </td>
               <td className="tnum px-3 py-1.5 text-right">{formatBytes(p.down)}</td>
