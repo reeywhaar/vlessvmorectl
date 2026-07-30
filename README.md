@@ -41,6 +41,7 @@ Real captures of the panel; only the data is invented. Regenerate them with
 - [Configuration](#configuration) — one environment variable that matters
 - [The CLI](#the-cli) — panel logins; VPN users live on the nodes
 - [Subscribers, and the page you hand them](#subscribers-and-the-page-you-hand-them) — one link per person, and what that link is worth
+- [Backups](#backups) — copying one directory, and the sidecar that does it hourly
 - [Things worth knowing](#things-worth-knowing) — silent reload failures, quota counters, capability URLs
 - [Security](#security) — what keeps `/api/proxy` from being a liability
 - [Development](#development) — tests, and where the 7 MB goes
@@ -254,6 +255,137 @@ Three things worth knowing before you hand a link out:
   the standing cost of capability URLs — vlessvmore's own `/sub/` and `/show/` URLs have it
   too. This service keeps it out of its own logs, replacing it with a fingerprint you can
   derive from the token you hold.
+
+## Backups
+
+Everything this panel owns is three JSON files in one directory, so a backup is a copy of
+that directory and a restore is putting it back:
+
+```sh
+tar czf vlessvmorectl-$(date -u +%Y%m%d_%H%M%S).tgz data
+```
+
+`restic`, Kopia, a cron job or the sidecar below — anything that can copy a directory works.
+There is no database to quiesce and no endpoint to call: the panel writes each file by
+rename, so a reader always sees a whole file rather than half of one.
+
+Two things are not in it. The node tokens live in `.env`, and every VPN account lives on its
+node, so an archive restores the panel — administrators, sessions, subscribers and their
+share links — not the VPN.
+
+### The backup sidecar
+
+[`backup/`](backup/) is a second image in this repo that does the above on a schedule:
+archive, keep a local copy, upload to [backio](https://github.com/Reeywhaar/backio), prune,
+sleep, repeat.
+
+```
+ghcr.io/reeywhaar/vlessvmorectl-backup:latest
+```
+
+Append this to the compose file from [Install](#compose). It needs no network path to the
+panel and no credential of the panel's; it mounts the data directory read-only and reads it.
+vlessvmore's equivalent sidecar has to fetch from an unauthenticated endpoint instead,
+because a live SQLite database cannot be copied file by file.
+
+```yaml
+  backup:
+    image: ghcr.io/reeywhaar/vlessvmorectl-backup:latest
+    container_name: vlessvmorectl-backup
+    restart: unless-stopped
+
+    volumes:
+      # The panel's data directory, read-only — this only ever reads it. Mounted at the
+      # same path the panel uses, so one VLESSVMORECTL_DATA_DIR means the same thing to
+      # both containers if you ever set it.
+      - ./data:/var/lib/vlessvmorectl:ro
+      # Local copies, rotated by the same retention policy as the remote. Drop this mount
+      # to keep backups remote-only.
+      - ./backups:/backups
+
+    networks: [backup-net]
+
+    environment:
+      # Remote directory. Must match the one granted to BACKUP_TOKEN.
+      - BACKIO_SUBDIRECTORY=vlessvmorectl
+      - BACKUP_INTERVAL=3600
+
+      # Omit BACKUP_TOKEN entirely to keep backups local only. `create` is enough to
+      # upload; `read,delete` as well for the remote retention policy to run:
+      #   docker exec backio /backio issue-token "gdrive vlessvmorectl create,read,delete"
+      - BACKIO_PROVIDER=gdrive
+      - BACKUP_TOKEN=your-backio-token
+
+      # Set this and the archive is uploaded as a 7z AES-256 zip instead of a plain tgz.
+      # WITHOUT THIS PASSWORD THE BACKUP IS UNRECOVERABLE — store it somewhere other than
+      # this host.
+      # - BACKUP_PASSWORD=change-me-and-store-it-safely
+
+  # backio forwards archives to a cloud provider (Google Drive, S3, ...).
+  # See https://github.com/reeywhaar/backio
+  backio:
+    image: ghcr.io/reeywhaar/backio:latest
+    container_name: backio
+    restart: unless-stopped
+    volumes:
+      - backio-data:/data
+    networks: [backup-net]
+    environment:
+      # base64-encoded rclone config (e.g. from backio's ./setup-gdrive.sh)
+      - RCLONE_CONF_BASE64=${RCLONE_CONF_BASE64}
+
+networks:
+  backup-net:
+    driver: bridge
+
+volumes:
+  backio-data:
+```
+
+| variable | default | what |
+| --- | --- | --- |
+| `BACKIO_SUBDIRECTORY` | **required** | remote directory; must match the token's grant |
+| `VLESSVMORECTL_DATA_DIR` | `/var/lib/vlessvmorectl` | the directory to archive, i.e. where you mounted the panel's data |
+| `BACKUP_INTERVAL` | `3600` | seconds between backups |
+| `BACKIO_URL` | `http://backio:8080` | backio |
+| `BACKIO_PROVIDER` | `gdrive` | rclone remote name |
+| `BACKUP_TOKEN` | unset | backio token; **unset means local copies only, no upload** |
+| `BACKUP_PASSWORD` | unset | when set, upload a 7z AES-256 `.zip` instead of the plain `.tgz` |
+| `BACKUP_DIR` | `/backups` | where local copies are kept |
+
+Archives are named `vlessvmorectl-<YYYYMMDD_HHMMSS>.<tgz|zip>`, mode `0600`, and hold every
+file under a single top-level `data/` — so extracting one over a deployment directory puts
+each file back where the compose file mounts it from:
+
+```sh
+docker compose stop vlessvmorectl
+tar xzf backups/vlessvmorectl-20260730_031500.tgz -C .   # writes ./data/*.json
+docker compose start vlessvmorectl
+```
+
+Stop the panel first: it keeps `subscribers.json` in memory and writes that copy back on the
+next change, so restoring underneath a running panel gets your file overwritten again.
+
+**An empty data directory is an error, not an empty archive** — that one uploads cleanly,
+satisfies retention, prunes the good copies behind it, and is discovered on the day it is
+needed. The likeliest cause is a mount that is not where this expects it.
+
+**Retention, applied to both the local directory and the remote:** the newest archive from
+each of the last three days it has one for, plus one at least a week old and one at least a
+month old. So five archives at most, whatever the interval. Each slot falls back to the
+oldest archive when nothing qualifies, so a young deployment deletes nothing. Names it does
+not recognise are left alone, including the sibling project's `vlessvmore-…` archives.
+
+Pruning the remote needs `read` and `delete` on the backio token; with a `create`-only token
+the uploads still work and the remote is not pruned. Every run logs one JSON line per step to
+stdout, and a failed run is logged and retried at the next interval rather than taking the
+container down.
+
+**What an archive is worth, if it leaks:** `admins.json` is bcrypt hashes, not passwords, and
+`sessions.json` is cookie hashes, not cookies. `subscribers.json` is the sensitive one: share
+tokens in the clear, each a capability granting sight of that subscriber's accounts. No node
+bearer token is in there at all. Hence `BACKUP_PASSWORD` when the remote is not yours — and
+keep that password somewhere other than the host being backed up.
 
 ## Things worth knowing
 

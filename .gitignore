@@ -3,6 +3,10 @@
 # Holds admins.json. Never commit it.
 /data/
 
+# Local archives, if you run the backup sidecar from this checkout. Same contents as
+# /data, so the same rule applies.
+/backups/
+
 # Holds VLESSVMORE_SERVERS, i.e. full-control tokens for every node.
 .env
 

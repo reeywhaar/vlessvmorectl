@@ -106,6 +106,20 @@ jobs:
           # "unknown/unknown" attestation entry beside it.
           provenance: false
 
+      # A step on this job rather than a job of its own, so it reuses the checkout, QEMU,
+      # buildx and GHCR login above. Its own cache scope because the two images share no
+      # layers — one build arg's worth of Go, against a Node build and an embed.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: backup/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}-backup:latest
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=backup
+          cache-to: type=gha,mode=max,scope=backup
+          provenance: false
+
       # The Dockerfile already fails the build if the bundle is empty, so this is not
       # that check. It records the version in the run log, and — more usefully — proves
       # the published image actually serves the frontend rather than the "not built"
