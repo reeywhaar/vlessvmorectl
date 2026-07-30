@@ -9,6 +9,7 @@ import { makeQueryClient } from "../queries/client";
 import { ReloadWatch, ReloadWatchProvider } from "../queries/reloadWatch";
 import type { Method, RequestOptions, Transport } from "../api/transport";
 import type {
+  Passkey,
   QRMatrix,
   Server,
   ServerInfo,
@@ -152,6 +153,20 @@ export interface FakeOptions {
   links?: Record<string, Partial<UserLink>>;
   /** Overrides for a node's /api/server response, by server id — its display name mostly. */
   infos?: Record<string, Partial<ServerInfo>>;
+  /** As VLESSVMORE_PASSKEY_ORIGIN being set: /api/me says so and the endpoints answer. */
+  passkeysEnabled?: boolean;
+  passkeys?: Passkey[];
+}
+
+export function makePasskey(over: Partial<Passkey> = {}): Passkey {
+  return {
+    id: "k7m2xa9v",
+    label: "iPhone",
+    algorithm: "ES256",
+    synced: true,
+    created_at: "2026-07-01T09:12:33Z",
+    ...over,
+  };
 }
 
 /** The current password the fake backend accepts when re-authenticating. */
@@ -183,13 +198,77 @@ export function makeFake(opts: FakeOptions = {}): Fake {
       ? null
       : json({ error: "that is not your current password" }, 403);
 
+  let passkeys = opts.passkeys ?? [];
+
+  // The option objects only have to be shaped right, not cryptographically real: the
+  // authenticator on the other side is stubbed too. What these tests are for is the wiring —
+  // that buffers are decoded before reaching the browser and encoded before reaching us.
+  const passkeyRoute = (method: Method, path: string, o: RequestOptions): Response => {
+    if (path === "/api/passkeys" && method === "GET") return json({ passkeys });
+    if (path === "/api/passkeys/register/begin") {
+      return json({
+        state: "reg-state",
+        options: {
+          challenge: "Y2hhbGxlbmdl",
+          rp: { id: "panel.example.com", name: "vlessvmore panel" },
+          user: { id: "dXNlci1oYW5kbGU", name: username, displayName: username },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+          excludeCredentials: passkeys.map(() => ({
+            id: "ZXhpc3Rpbmc",
+            type: "public-key",
+            transports: ["internal"],
+          })),
+        },
+      });
+    }
+    if (path === "/api/passkeys/register/finish") {
+      const label = String((o.body as { label: string }).label);
+      const created = makePasskey({ id: `pk${passkeys.length + 1}`, label });
+      passkeys = [...passkeys, created];
+      return json({ passkey: created }, 201);
+    }
+    if (path === "/api/passkeys/login/begin") {
+      return json({ state: "login-state", options: { challenge: "Y2hhbGxlbmdl" } });
+    }
+    if (path === "/api/passkeys/login/finish") {
+      return json({ user: { username } });
+    }
+    const m = /^\/api\/passkeys\/([^/]+)$/.exec(path);
+    if (m) {
+      const id = decodeURIComponent(m[1]!);
+      const found = passkeys.find((p) => p.id === id);
+      if (!found) return json({ error: "not found" }, 404);
+      if (method === "DELETE") {
+        passkeys = passkeys.filter((p) => p.id !== id);
+        return new Response(null, { status: 204 });
+      }
+      const renamed = { ...found, label: String((o.body as { label: string }).label) };
+      passkeys = passkeys.map((p) => (p.id === id ? renamed : p));
+      return json({ passkey: renamed });
+    }
+    return json({ error: "no such endpoint: " + path }, 404);
+  };
+
   const transport: Transport = {
     panel(method: Method, path: string, o: RequestOptions = {}) {
       calls.push(`PANEL ${method} ${path}`);
       if (o.body !== undefined) bodies.push(o.body);
 
       if (path === "/api/me") {
-        return Promise.resolve(json({ username, expires_at: "2026-08-06T00:00:00Z" }));
+        return Promise.resolve(
+          json({
+            username,
+            expires_at: "2026-08-06T00:00:00Z",
+            passkeys_enabled: opts.passkeysEnabled ?? false,
+          }),
+        );
+      }
+      // Absent unless configured, exactly as the real router leaves them unregistered.
+      if (path.startsWith("/api/passkeys")) {
+        if (!opts.passkeysEnabled) {
+          return Promise.resolve(json({ error: "no such endpoint: " + path }, 404));
+        }
+        return Promise.resolve(passkeyRoute(method, path, o));
       }
       if (path === "/api/account/username") {
         const bad = reauth(o.body);

@@ -21,8 +21,9 @@
 //	admins.json       written by the CLI and the daemon, read by both
 //	sessions.json     written only by the daemon,        read by the daemon
 //	subscribers.json  written only by the daemon,        read by both
+//	passkeys.json     written only by the daemon,        read by both
 //
-// The bottom two have exactly one writer each and so can never contend. sessions.json
+// All but the first have exactly one writer each and so can never contend. sessions.json
 // holds hashes rather than cookie values, which is what makes writing it acceptable; see
 // the session package. subscribers.json holds share tokens in the clear because they must
 // be re-readable, and enforces its single-writer rule structurally — see Open,
@@ -63,6 +64,7 @@ type Store struct {
 	dir         string
 	Admins      *Admins
 	Subscribers *Subscribers
+	Passkeys    *Passkeys
 }
 
 // Open prepares dir for a short-lived CLI process: subscribers.json is readable but not
@@ -87,7 +89,22 @@ func open(dir string, writable bool) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{dir: dir, Admins: admins, Subscribers: subscribers}, nil
+	passkeys, err := OpenPasskeys(filepath.Join(dir, PasskeysFile), writable)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{dir: dir, Admins: admins, Subscribers: subscribers, Passkeys: passkeys}, nil
+}
+
+// PrunePasskeys drops credentials whose administrator no longer exists.
+//
+// On Store rather than on Passkeys because it is a join across two files, and Passkeys has
+// no business knowing Admins exists.
+func (s *Store) PrunePasskeys() (int, error) {
+	return s.Passkeys.PruneOrphans(func(adminID string) bool {
+		_, err := s.Admins.GetByID(adminID)
+		return err == nil
+	})
 }
 
 // Dir returns the data directory.

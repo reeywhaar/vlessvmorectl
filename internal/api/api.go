@@ -23,12 +23,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/go-webauthn/webauthn/webauthn"
 
 	"vlessvmorectl/internal/config"
 	"vlessvmorectl/internal/session"
@@ -46,14 +48,23 @@ type Server struct {
 	proxy    *proxyClient
 	log      *slog.Logger
 	now      func() time.Time
+
+	// Both nil unless a passkey origin is configured, and that nil is the switch: the
+	// routes are not registered without it.
+	webauthn   *webauthn.WebAuthn
+	challenges *challengeStore
 }
 
 // New builds a server. now is injectable so tests can drive expiry without sleeping.
-func New(cfg *config.Config, st *store.Store, sessions *session.Table, spa *SPA, log *slog.Logger, now func() time.Time) *Server {
+//
+// It returns an error so a relying party the library refuses stops the process, rather than
+// leaving passkeys quietly switched off with no way to notice. config has already checked
+// everything it can, so an error here means a programming mistake.
+func New(cfg *config.Config, st *store.Store, sessions *session.Table, spa *SPA, log *slog.Logger, now func() time.Time) (*Server, error) {
 	if now == nil {
 		now = time.Now
 	}
-	return &Server{
+	s := &Server{
 		cfg:      cfg,
 		store:    st,
 		sessions: sessions,
@@ -64,7 +75,18 @@ func New(cfg *config.Config, st *store.Store, sessions *session.Table, spa *SPA,
 		log:      log,
 		now:      now,
 	}
+	if cfg.Passkey != nil {
+		rp, err := newRelyingParty(cfg.Passkey)
+		if err != nil {
+			return nil, fmt.Errorf("passkeys: %w", err)
+		}
+		s.webauthn, s.challenges = rp, newChallengeStore()
+	}
+	return s, nil
 }
+
+// passkeysEnabled is the one predicate; see Server.webauthn.
+func (s *Server) passkeysEnabled() bool { return s.webauthn != nil }
 
 // Handler returns the routes.
 func (s *Server) Handler() http.Handler {
@@ -84,6 +106,22 @@ func (s *Server) Handler() http.Handler {
 	// Authenticated.
 	mux.Handle("POST /api/account/password", s.requireSession(s.changePassword))
 	mux.Handle("POST /api/account/username", s.requireSession(s.changeUsername))
+
+	// Registered only when a passkey origin is configured. Without one these paths fall
+	// through to the JSON 404 below, so the endpoints do not exist rather than existing and
+	// refusing — and the unauthenticated block above stays the complete list of what a
+	// stranger can reach, except for the two login routes added here.
+	if s.passkeysEnabled() {
+		mux.Handle("GET /api/passkeys", s.requireSession(s.listPasskeys))
+		mux.Handle("POST /api/passkeys/register/begin", s.requireSession(s.beginRegisterPasskey))
+		mux.Handle("POST /api/passkeys/register/finish", s.requireSession(s.finishRegisterPasskey))
+		mux.Handle("PATCH /api/passkeys/{id}", s.requireSession(s.renamePasskey))
+		mux.Handle("DELETE /api/passkeys/{id}", s.requireSession(s.deletePasskey))
+
+		// Unauthenticated, necessarily: this is how you sign in.
+		mux.HandleFunc("POST /api/passkeys/login/begin", s.beginPasskeyLogin)
+		mux.HandleFunc("POST /api/passkeys/login/finish", s.finishPasskeyLogin)
+	}
 
 	mux.Handle("GET /api/servers", s.requireSession(s.listServers))
 	mux.Handle("/api/proxy", s.requireSession(s.proxyHandler))
@@ -380,19 +418,26 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, r, id)
 
-	if !requestIsSecure(r) && !hostIsLoopback(r.Host) {
-		// The cookie just issued has no Secure attribute, because this request was
-		// plaintext. Say so loudly: the alternative failure mode — an always-Secure
-		// cookie silently discarded by the browser — is a login loop with no error
-		// anywhere, and it is a genuinely horrible afternoon to debug.
-		s.log.Warn("login succeeded over plain HTTP on a non-loopback host; the session cookie was issued without Secure and the credential is crossing the network in the clear. Put a TLS-terminating proxy in front of this service.",
-			"host", r.Host, "user", admin.Username)
-	}
+	s.warnIfPlaintext(r, admin.Username)
 
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user": map[string]any{"username": admin.Username},
 	})
+}
+
+// warnIfPlaintext says so when a session cookie was just issued over plain HTTP.
+//
+// Called from every path that issues one. The cookie has no Secure attribute in that case,
+// because this request was plaintext; the alternative failure mode — an always-Secure cookie
+// silently discarded by the browser — is a login loop with no error anywhere, and a
+// genuinely horrible afternoon to debug.
+func (s *Server) warnIfPlaintext(r *http.Request, username string) {
+	if requestIsSecure(r) || config.HostIsLoopback(r.Host) {
+		return
+	}
+	s.log.Warn("a sign-in succeeded over plain HTTP on a non-loopback host; the session cookie was issued without Secure and the credential is crossing the network in the clear. Put a TLS-terminating proxy in front of this service.",
+		"host", r.Host, "user", username)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -420,6 +465,13 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		if s.store.Admins.Count() == 0 {
 			body["no_admins"] = true
 		}
+		// Rides along on the 401 exactly as no_admins does, because this body is the only
+		// thing the login screen receives and the passkey button has to know whether to
+		// exist. Configuration only, never a count: "three passkeys are registered here"
+		// would be a different and needless disclosure.
+		if s.passkeysEnabled() {
+			body["passkeys_enabled"] = true
+		}
 		writeJSON(w, http.StatusUnauthorized, body)
 		return
 	}
@@ -427,8 +479,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		s.setSessionCookie(w, r, id)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"username":   rec.Username,
-		"expires_at": rec.ExpiresAt.UTC().Format(time.RFC3339),
+		"username":         rec.Username,
+		"expires_at":       rec.ExpiresAt.UTC().Format(time.RFC3339),
+		"passkeys_enabled": s.passkeysEnabled(),
 	})
 }
 
@@ -508,18 +561,6 @@ func requestIsSecure(r *http.Request) bool {
 	// A proxy chain may send a list; the first entry is the client-facing one.
 	first, _, _ := strings.Cut(proto, ",")
 	return strings.EqualFold(strings.TrimSpace(first), "https")
-}
-
-func hostIsLoopback(host string) bool {
-	h, _, err := net.SplitHostPort(host)
-	if err != nil {
-		h = host
-	}
-	if strings.EqualFold(h, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(strings.Trim(h, "[]"))
-	return ip != nil && ip.IsLoopback()
 }
 
 // ---- helpers ----

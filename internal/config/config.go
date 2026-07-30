@@ -36,12 +36,25 @@ const (
 
 	// LogLevelEnv sets the slog level: debug, info, warn or error.
 	LogLevelEnv = "VLESSVMORE_LOG_LEVEL"
+
+	// PasskeyOriginEnv is the address operators open in a browser, e.g.
+	// https://panel.example.com. Unset disables passkeys entirely.
+	//
+	// It has to be told, and cannot be inferred: Host and X-Forwarded-Host are both
+	// client-supplied, and this service takes nothing from them. See the comment above
+	// AccessPath in internal/api/subscribers.go, which is the same argument.
+	PasskeyOriginEnv = "VLESSVMORE_PASSKEY_ORIGIN"
 )
 
 // Config is everything the process was told at startup.
 type Config struct {
 	Servers  []*Server
 	LogLevel slog.Level
+
+	// Passkey is nil when PasskeyOriginEnv is unset, and that nil is the single "are
+	// passkeys on?" predicate in the program: the routes are not even registered without
+	// it, so the endpoints do not exist rather than existing and refusing.
+	Passkey *Passkey
 
 	// byOrigin is the proxy's allowlist: an exact map from a normalised
 	// "scheme://host" to the server it belongs to. A map rather than a scan over
@@ -66,9 +79,15 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 	}
 
+	passkey, err := ParsePasskeyOrigin(getenv(PasskeyOriginEnv))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Servers:  servers,
 		LogLevel: level,
+		Passkey:  passkey,
 		byOrigin: make(map[string]*Server, len(servers)),
 	}
 	for _, s := range servers {

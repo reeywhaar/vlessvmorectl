@@ -82,6 +82,20 @@ func (l *loginLimiter) fail(username string, now time.Time) {
 	w.roll(now)
 }
 
+// allowGlobal counts a request against the endpoint-wide cap only.
+//
+// For the passkey ceremonies, which have no username to key on: the browser sends a
+// credential, and who it belongs to is not known until it verifies. What this bounds is the
+// pending-challenge table, which conditional mediation lets an anonymous visitor fill one
+// entry at a time. A *failed* finish is charged to the per-user bucket once the
+// administrator is known, so passkey and password guessing share one penalty box.
+func (l *loginLimiter) allowGlobal(now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reapLocked(now)
+	return l.global.roll(now) <= globalAttempts
+}
+
 // succeed clears a username's failure count.
 func (l *loginLimiter) succeed(username string) {
 	key := limiterKey(username)

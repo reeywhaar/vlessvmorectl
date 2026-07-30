@@ -43,8 +43,11 @@ plaintext connection.
 
 Configuration is entirely environment:
 
-    VLESSVMORE_SERVERS   url|token pairs, comma-separated
-    VLESSVMORE_LOG_LEVEL debug, info (default), warn or error`,
+    VLESSVMORE_SERVERS        url|token pairs, comma-separated
+    VLESSVMORE_LOG_LEVEL      debug, info (default), warn or error
+    VLESSVMORE_PASSKEY_ORIGIN the address operators open in a browser, e.g.
+                              https://panel.example.com. Enables passkey sign-in;
+                              unset disables it.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -89,7 +92,19 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 	// Restored from the data directory, so `docker compose restart` does not sign every
 	// operator out. Only hashes are stored; see the session package.
 	sessions := session.New(store.OpenSessionFile(st.Dir()), log)
-	srv := api.New(cfg, st, sessions, spa, log, time.Now)
+	srv, err := api.New(cfg, st, sessions, spa, log, time.Now)
+	if err != nil {
+		return err
+	}
+
+	// Credentials belonging to administrators who have since been removed. Done here, and
+	// from the authenticated listing, but never on the sign-in path: an unauthenticated
+	// request must not be able to make this process rewrite a file.
+	if n, err := st.PrunePasskeys(); err != nil {
+		log.Warn("could not prune orphaned passkeys; continuing", "error", err)
+	} else if n > 0 {
+		log.Info("dropped passkeys belonging to deleted administrators", "passkeys", n)
+	}
 
 	// Installed before anything starts, so a signal arriving during startup is not
 	// missed.
@@ -123,6 +138,9 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 		"data_dir", st.Dir(),
 		"admins", st.Admins.Count(),
 		"subscribers", st.Subscribers.Count(),
+		// Disabled is a legitimate steady state, so this is a fact in the startup line
+		// rather than a warning. See warnAboutConfiguration for the case that is a trap.
+		"passkeys", cfg.Passkey != nil,
 		// Counts only. Never the URLs at info level, and never the tokens at any level.
 		"servers", len(cfg.Servers))
 
@@ -154,6 +172,19 @@ func warnAboutConfiguration(log *slog.Logger, cfg *config.Config, st *store.Stor
 		// whatever ships logs off this box. Started-but-unenterable is the safe state.
 		log.Warn("no administrators exist, so nobody can log in. Create one with: " +
 			"docker exec vlessvmorectl vlessvmorectl users add alice")
+	}
+
+	// The trap: an operator dropped the variable and is now wondering why sign-in broke for
+	// everyone who had stopped typing their password.
+	if cfg.Passkey == nil {
+		if n := st.Passkeys.Count(); n > 0 {
+			log.Warn("passkeys are registered but disabled, so nobody can use them. "+
+				"Set "+config.PasskeyOriginEnv+`="https://panel.example.com" to turn them back on`,
+				"passkeys", n)
+		}
+	} else if config.HostIsLoopback(cfg.Passkey.RPID) {
+		log.Info("passkeys are configured for a loopback origin, which only works on this machine",
+			"origin", cfg.Passkey.Origin)
 	}
 
 	if len(cfg.Servers) == 0 {

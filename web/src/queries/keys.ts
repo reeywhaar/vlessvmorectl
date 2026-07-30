@@ -24,6 +24,9 @@ export const qk = {
   subscribers: ["subscribers"] as const,
   subscriber: (id: string) => ["subscribers", id] as const,
 
+  /** This administrator's own passkeys. Cleared on sign-out with everything else. */
+  passkeys: ["passkeys"] as const,
+
   server: (s: string) => ["server", s] as const,
   serverInfo: (s: string) => ["server", s, "info"] as const,
   serverStatus: (s: string) => ["server", s, "status"] as const,

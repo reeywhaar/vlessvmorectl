@@ -76,14 +76,33 @@ type harness struct {
 	logs     *strings.Builder
 }
 
+// harnessOpt tunes newHarness. Variadic so the ~30 existing call sites are untouched, and
+// so the default harness stays passkey-less — which is the shape most tests want.
+type harnessOpt func(*harnessConfig)
+
+type harnessConfig struct{ passkeyOrigin string }
+
+// withPasskeyOrigin turns passkeys on, as VLESSVMORE_PASSKEY_ORIGIN would.
+func withPasskeyOrigin(origin string) harnessOpt {
+	return func(c *harnessConfig) { c.passkeyOrigin = origin }
+}
+
 // newHarness wires a Server against the given nodes, with one administrator already
 // created.
-func newHarness(t *testing.T, serversEnv string) *harness {
+func newHarness(t *testing.T, serversEnv string, opts ...harnessOpt) *harness {
 	t.Helper()
 
+	var hc harnessConfig
+	for _, o := range opts {
+		o(&hc)
+	}
+
 	cfg, err := config.Load(func(k string) string {
-		if k == config.ServersEnv {
+		switch k {
+		case config.ServersEnv:
 			return serversEnv
+		case config.PasskeyOriginEnv:
+			return hc.passkeyOrigin
 		}
 		return ""
 	})
@@ -113,7 +132,10 @@ func newHarness(t *testing.T, serversEnv string) *harness {
 	}
 
 	sessions := session.NewInMemory()
-	srv := New(cfg, st, sessions, spa, log, time.Now)
+	srv, err := New(cfg, st, sessions, spa, log, time.Now)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 
 	return &harness{
 		t: t, server: srv, handler: srv.Handler(),
@@ -122,10 +144,14 @@ func newHarness(t *testing.T, serversEnv string) *harness {
 }
 
 // login returns a cookie for the seeded administrator.
-func (h *harness) login() *http.Cookie {
+func (h *harness) login() *http.Cookie { return h.loginAs("alice") }
+
+// loginAs returns a cookie for any administrator the test has created, all of whom share
+// testPassword.
+func (h *harness) loginAs(username string) *http.Cookie {
 	h.t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/login",
-		strings.NewReader(`{"username":"alice","password":"`+testPassword+`"}`))
+		strings.NewReader(`{"username":"`+username+`","password":"`+testPassword+`"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.handler.ServeHTTP(rec, req)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -205,6 +206,23 @@ func NormalizeOrigin(scheme, host string) string {
 		host = strings.TrimSuffix(host, ":80")
 	}
 	return scheme + "://" + host
+}
+
+// HostIsLoopback reports whether a Host header names this machine.
+//
+// Shared rather than duplicated: it gates the login handler's plaintext warning and the
+// passkey origin's http:// exemption, and two copies of a predicate behind a
+// security-relevant decision is one copy too many.
+func HostIsLoopback(host string) bool {
+	h, _, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
+	}
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 // originID is the twelve-hex-character handle the SPA routes on.

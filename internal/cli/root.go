@@ -73,6 +73,7 @@ Mint a node's token on the node itself:
 	root.AddCommand(
 		newServeCmd(),
 		newUsersCmd(),
+		newPasskeysCmd(),
 		newVersionCmd(),
 		newHealthcheckCmd(),
 	)

@@ -1,6 +1,9 @@
 import { useState } from "react";
-import { Button, Card, Field, Input, PageHeader } from "../components/ui";
+import { Boundary } from "../components/Boundary";
+import { ErrorState } from "../components/ErrorState";
+import { Button, Card, Field, Input, PageHeader, Skeleton } from "../components/ui";
 import { describeFailure, isVlessError } from "../api/errors";
+import { PasskeysCard } from "../features/passkeys/PasskeysCard";
 import { useChangePassword, useChangeUsername, useSession } from "../queries/hooks";
 
 /**
@@ -19,6 +22,16 @@ export function AccountPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <UsernameCard current={session.username} />
         <PasswordCard />
+        <div className="lg:col-span-2">
+          <Boundary
+            pending={<Skeleton className="h-40 w-full" />}
+            fallback={({ error, retry, failure }) => (
+              <ErrorState error={error} retry={retry} failure={failure} />
+            )}
+          >
+            <PasskeysCard enabled={session.passkeys_enabled} />
+          </Boundary>
+        </div>
       </div>
     </>
   );

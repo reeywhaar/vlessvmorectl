@@ -45,9 +45,11 @@ export type VlessFailure =
    *
    * `noAdmins` rides along because it arrives on this same 401 — a fresh install has
    * nobody to sign in as, and the SPA needs to show a setup card rather than a form that
-   * cannot succeed.
+   * cannot succeed. `passkeysEnabled` rides along for the same structural reason: this body
+   * is the only thing the sign-in screen receives, and the passkey button has to know
+   * whether to exist.
    */
-  | { kind: "unauthorized"; noAdmins?: boolean }
+  | { kind: "unauthorized"; noAdmins?: boolean; passkeysEnabled?: boolean }
   /** Our own backend refused the target URL. A bug in the client, not a state. */
   | { kind: "forbidden"; message: string }
   | { kind: "aborted" };
@@ -160,8 +162,12 @@ export async function classify(res: Response): Promise<VlessFailure> {
   // Our own backend, not a node.
   if (res.status === 401) {
     try {
-      const parsed = JSON.parse(raw) as { no_admins?: boolean };
-      if (parsed.no_admins) return { kind: "unauthorized", noAdmins: true };
+      const parsed = JSON.parse(raw) as { no_admins?: boolean; passkeys_enabled?: boolean };
+      const flags = {
+        ...(parsed.no_admins ? { noAdmins: true as const } : {}),
+        ...(parsed.passkeys_enabled ? { passkeysEnabled: true as const } : {}),
+      };
+      return { kind: "unauthorized", ...flags };
     } catch {
       /* a 401 with no body is still a 401 */
     }

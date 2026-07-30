@@ -29,7 +29,10 @@ THEME="${THEME:-light}"
 # operator remaps it. Here that means this script needs to be able to bind :80: fine on
 # macOS, but on Linux it wants either root or
 #   sudo setcap cap_net_bind_service=+ep <binary>
-PANEL_URL="http://127.0.0.1"
+#
+# localhost rather than 127.0.0.1: a WebAuthn relying party id must be a domain, so
+# VLESSVMORE_PASSKEY_ORIGIN below refuses an IP address. Same machine either way.
+PANEL_URL="http://localhost"
 
 chromium=""
 for candidate in \
@@ -91,6 +94,7 @@ echo "==> starting the panel"
 export VLESSVMORECTL_DATA_DIR="$work/data"
 "$work/vlessvmorectl" users add demo demopassword123 > /dev/null
 VLESSVMORE_SERVERS="http://127.0.0.1:8801|TOKENAAAAAAAAAAAAAAAAAAAAAAAAAAA,http://127.0.0.1:8802|TOKENBBBBBBBBBBBBBBBBBBBBBBBBBBB,http://127.0.0.1:8803|TOKENCCCCCCCCCCCCCCCCCCCCCCCCCCC" \
+  VLESSVMORE_PASSKEY_ORIGIN="$PANEL_URL" \
   "$work/vlessvmorectl" serve > "$work/panel.log" 2>&1 &
 pids+=($!)
 

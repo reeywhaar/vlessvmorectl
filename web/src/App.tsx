@@ -49,7 +49,13 @@ export function App() {
         // `no_admins` rides along on the same 401 so a fresh install gets the setup card
         // rather than a form nobody can satisfy.
         if (failure?.kind === "unauthorized") {
-          return <LoginPage noAdmins={noAdminsFrom(error)} onSignedIn={identityChanged} />;
+          return (
+            <LoginPage
+              noAdmins={noAdminsFrom(error)}
+              passkeysEnabled={passkeysEnabledFrom(error)}
+              onSignedIn={identityChanged}
+            />
+          );
         }
         return (
           <div className="mx-auto max-w-2xl p-6">
@@ -238,4 +244,11 @@ function noAdminsFrom(error: unknown): boolean {
   if (!isVlessError(error)) return false;
   const f = error.failure;
   return f.kind === "unauthorized" && f.noAdmins === true;
+}
+
+/** And `passkeys_enabled` when a passkey origin is configured, on the same 401 body. */
+function passkeysEnabledFrom(error: unknown): boolean {
+  if (!isVlessError(error)) return false;
+  const f = error.failure;
+  return f.kind === "unauthorized" && f.passkeysEnabled === true;
 }

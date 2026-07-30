@@ -15,6 +15,48 @@ export interface Server {
 export interface Session {
   username: string;
   expires_at: string;
+  /** Whether VLESSVMORE_PASSKEY_ORIGIN is set. Configuration, never a count. */
+  passkeys_enabled: boolean;
+}
+
+// ---- panel-owned: passkeys ----
+
+/** One enrolled authenticator, as the panel exposes it. No key material, by construction. */
+export interface Passkey {
+  id: string;
+  label: string;
+  algorithm: string;
+  /** In a keychain rather than tied to one device, from the authenticator's backup flag. */
+  synced: boolean;
+  created_at: string;
+  last_used_at?: string;
+}
+
+/**
+ * The WebAuthn option objects, as the server serialises them.
+ *
+ * Every buffer is base64url here and a BufferSource in the browser's own types, which is the
+ * whole reason these are separate interfaces rather than the DOM ones. Only the fields that
+ * need decoding are named; the rest ride through untouched, so a server-side library upgrade
+ * that adds one needs no change here. See features/passkeys/webauthn.ts.
+ */
+export interface CredentialDescriptorJSON {
+  id: string;
+  type: string;
+  transports?: string[];
+}
+
+export interface CredentialCreationOptionsJSON {
+  challenge: string;
+  user: { id: string; name: string; displayName: string };
+  excludeCredentials?: CredentialDescriptorJSON[];
+  [key: string]: unknown;
+}
+
+export interface CredentialRequestOptionsJSON {
+  challenge: string;
+  allowCredentials?: CredentialDescriptorJSON[];
+  [key: string]: unknown;
 }
 
 // ---- panel-owned: subscribers ----

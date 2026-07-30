@@ -19,6 +19,16 @@ import {
 import type { Subscriber } from "../api/types";
 import { getMe, postLogin, postLogout } from "../api/actions/auth";
 import { postAccountPassword, postAccountUsername } from "../api/actions/account";
+import {
+  deletePasskeysById,
+  getPasskeys,
+  patchPasskeysById,
+  postPasskeysLoginBegin,
+  postPasskeysLoginFinish,
+  postPasskeysRegisterBegin,
+  postPasskeysRegisterFinish,
+} from "../api/actions/passkeys";
+import { createPasskey, getPasskeyAssertion } from "../features/passkeys/webauthn";
 import { getServers } from "../api/actions/servers";
 import { getServer } from "../api/actions/server";
 import { getStatus } from "../api/actions/status";
@@ -367,6 +377,80 @@ export function useChangeUsername() {
     mutationFn: ({ currentPassword, username }: { currentPassword: string; username: string }) =>
       callApi(postAccountUsername(currentPassword, username)),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.session }),
+  });
+}
+
+// ---- panel-owned: passkeys ----
+
+/**
+ * Not polled. These are rows in this panel's own store that change only when this
+ * administrator changes them, and every mutation below invalidates them.
+ */
+export function usePasskeys() {
+  const callApi = useApiCall();
+  return useSuspenseQuery({
+    queryKey: qk.passkeys,
+    queryFn: ({ signal }) => callApi(getPasskeys(), signal),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * The whole three-step enrolment as one mutation, so `isPending` covers the time the
+ * operating system's prompt is on screen too — which is most of the wall clock.
+ */
+export function useRegisterPasskey() {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ label }: { label: string }) => {
+      const { state, options } = await callApi(postPasskeysRegisterBegin());
+      const { credential, discoverable } = await createPasskey(options);
+      const passkey = await callApi(postPasskeysRegisterFinish(state, label, credential));
+      return { passkey, discoverable };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.passkeys }),
+  });
+}
+
+export function useRenamePasskey() {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) =>
+      callApi(patchPasskeysById(id, label)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.passkeys }),
+  });
+}
+
+export function useDeletePasskey() {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => callApi(deletePasskeysById(id)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.passkeys }),
+  });
+}
+
+/**
+ * Signs in with a passkey. Mirrors useLogin exactly, including the qc.clear() — which is
+ * why the server returns the same body shape as POST /api/login: the caller can hand this to
+ * the same `onSuccess: onSignedIn` and App.tsx's epoch remount works unchanged.
+ *
+ * `assertion` lets the conditional-mediation hook hand in a ceremony it already completed,
+ * rather than starting a second one the browser would refuse.
+ */
+export function usePasskeyLogin() {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars?: { state: string; credential: unknown }) => {
+      if (vars) return callApi(postPasskeysLoginFinish(vars.state, vars.credential));
+      const { state, options } = await callApi(postPasskeysLoginBegin());
+      const credential = await getPasskeyAssertion(options);
+      return callApi(postPasskeysLoginFinish(state, credential));
+    },
+    onSuccess: () => qc.clear(),
   });
 }
 

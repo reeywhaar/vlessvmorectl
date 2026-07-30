@@ -41,6 +41,7 @@ Real captures of the panel; only the data is invented. Regenerate them with
 - [Configuration](#configuration) — one environment variable that matters
 - [The CLI](#the-cli) — panel logins; VPN users live on the nodes
 - [Your own account](#your-own-account) — changing your username and password from the panel
+- [Passkeys](#passkeys) — signing in without a password, and the one variable that enables it
 - [Subscribers, and the page you hand them](#subscribers-and-the-page-you-hand-them) — one link per person, and what that link is worth
 - [Backups](#backups) — copying one directory, and the sidecar that does it hourly
 - [Things worth knowing](#things-worth-knowing) — silent reload failures, quota counters, capability URLs
@@ -54,10 +55,13 @@ Real captures of the panel; only the data is invented. Regenerate them with
                     ┌──────────────────────────────────────────┐
   operator ────────▶│ vlessvmorectl  :80                       │
        cookie       │  POST /api/login                         │
-   vlessvmore_auth  │  GET  /api/me                            │
+   vlessvmore_auth  │  POST /api/passkeys/login/…              │  ← no session yet
+                    │  GET  /api/me                            │
                     │  GET  /api/servers  → [{id, url}]        │  ← no tokens
                     │  ANY  /api/proxy?url=…                   │
                     │  ANY  /api/subscribers…                  │
+                    │  ANY  /api/account/…                     │
+                    │  ANY  /api/passkeys…                     │
                     │  the panel bundle                        │
                     │                                          │
   subscriber ──────▶│  GET  /access/{token}                    │  ← no session
@@ -167,6 +171,7 @@ needs to be told is which nodes it manages.
 | `VLESSVMORE_SERVERS` | comma-separated `url|token` pairs. Newlines work too. |
 | `VLESSVMORE_TOKENS` | accepted as an alias for the above |
 | `VLESSVMORE_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error` |
+| `VLESSVMORE_PASSKEY_ORIGIN` | the address operators open in a browser, e.g. `https://panel.example.com`. Enables [passkey sign-in](#passkeys); unset disables it |
 | `VLESSVMORECTL_DATA_DIR` | overrides `/var/lib/vlessvmorectl` |
 
 ```
@@ -189,6 +194,7 @@ vlessvmorectl users ls [--json]
 vlessvmorectl users rm <username> [-y] [--force]
 vlessvmorectl users passwd <username> [password]
 vlessvmorectl users rename <username> <new-username>
+vlessvmorectl passkeys ls [--json]
 vlessvmorectl version
 ```
 
@@ -215,11 +221,11 @@ name to somebody else creates a different administrator who inherits nothing.
 `users rm` refuses to remove the last administrator without `--force`, since that locks
 everyone out of a running panel.
 
-`sessions.json` and `subscribers.json` are written only by the running panel, never by the
-CLI — one writer each, which is what lets two processes share a data directory without a
-lock or a socket protocol, and the CLI's handle on `subscribers.json` is read-only in code
-rather than by convention. `admins.json` is the one file both write, so the panel refuses to
-write over a version that changed underneath it and tells you to try again.
+`sessions.json`, `subscribers.json` and `passkeys.json` are written only by the running panel,
+never by the CLI — one writer each, which is what lets two processes share a data directory
+without a lock or a socket protocol, and the CLI's handles on the last two are read-only in
+code rather than by convention. `admins.json` is the one file both write, so the panel refuses
+to write over a version that changed underneath it and tells you to try again.
 
 ## Your own account
 
@@ -241,6 +247,52 @@ login endpoint.
 
 There is still no way to *create* the first administrator from the web, and no way to touch
 somebody else's account from it. Both remain `vlessvmorectl users …` on a shell.
+
+## Passkeys
+
+Off unless you set one variable:
+
+```
+VLESSVMORE_PASSKEY_ORIGIN="https://panel.example.com"
+```
+
+Without it there are no passkey endpoints at all — they are not registered, so they answer
+the same JSON 404 as any other unknown path — and no passkey affordance in the UI. That is
+the default because WebAuthn has to be *told* which origin it is bound to, and this service
+takes nothing from `Host` or `X-Forwarded-Host`: both are client-supplied, and building a
+security decision out of one is how you get a panel that trusts whoever asks.
+
+The relying party id is that origin's hostname. It is baked into every credential an
+authenticator stores, so **changing the panel's hostname invalidates every passkey**. It must
+be `https`, or `localhost` while developing; an IP address is refused, because WebAuthn wants
+a domain and `127.0.0.1` is not one.
+
+With it set, an administrator signs in with a password, opens their account page and adds a
+passkey — Touch ID, Windows Hello, a phone, or a security key. After that the sign-in screen
+offers **Sign in with a passkey**, and browsers that support it also offer the passkey from
+the username field's autofill. No username is typed either way: the credential says who you
+are.
+
+Three things worth knowing before you rely on it:
+
+- **A passkey is a second way in, not a second factor.** It stands beside the password with
+  the same authority. Nothing here is two-factor authentication.
+- **A passkey survives a password change.** `users passwd` ends every session, including ones
+  obtained with a passkey — but it does not remove the passkey, so that person can sign
+  straight back in. Revoking somebody is `users rm`.
+- **`passkeys.json` holds public keys only.** Unlike `subscribers.json`, nothing in it is a
+  capability: the private key never leaves the authenticator, so a leaked copy of this file
+  authenticates nobody.
+
+Removing an administrator leaves their credentials behind until the panel next starts or
+somebody opens an account page, at which point they are pruned. They cannot be used in the
+meantime — every sign-in re-checks `admins.json`, which is the authority on whether an account
+exists. And because an administrator's id is permanent, giving a freed username to somebody
+else never hands them the old passkeys.
+
+`vlessvmorectl passkeys ls` shows what exists. There is deliberately no `passkeys rm`: the
+panel rewrites that file wholesale from memory, so a second writer's edit would be silently
+undone.
 
 ## Subscribers, and the page you hand them
 
@@ -437,6 +489,11 @@ once at startup to record the new ids; the old records keep their username as th
 nothing else moves. Roll back after that and the old build will refuse to read the file
 rather than misread it — restore `admins.json` from a backup if you need to.
 
+**A passkey is tied to the hostname you serve the panel on.** The relying party id comes from
+`VLESSVMORE_PASSKEY_ORIGIN`, and authenticators store it alongside the key, so moving the panel
+to a new domain silently invalidates every enrolled passkey. Passwords still work; everyone
+re-enrols.
+
 **vlessvmore has no 401.** Every refusal it makes — no token, revoked token, unknown path,
 wrong method — is an identical `404 page not found` in `text/plain`, padded to a fixed
 60–150 ms, deliberately. Its genuine not-founds are JSON. That content type is the only
@@ -528,6 +585,29 @@ again — a hash cannot do that. It is not an escalation: everything a share tok
 a set of node subscription URLs that are themselves capability URLs already sitting in that
 person's VPN client.
 
+On passkeys specifically:
+
+- **Attestation is `none`.** There is no trust anchor to check an attestation statement
+  against and no metadata service to consult, so requesting one would be theatre. The COSE
+  public key is extracted from the attestation object either way, which is the part that
+  matters.
+- **A backwards signature counter is logged, not refused.** It can mean a cloned
+  authenticator; it much more often means one credential synced to two devices, and refusing
+  would turn that into an unexplained sign-in failure whose only recovery is a shell. There is
+  a test pinning this behaviour, so a library release that starts refusing on its own shows up
+  as a failing test rather than as somebody locked out.
+- **User verification is `preferred`.** A passkey here carries the same authority as the
+  password beside it, so requiring a PIN on a security key that has none would be an
+  unexplained refusal rather than a security gain.
+- **A signed-in session can enrol a passkey.** So a stolen session can plant a credential that
+  outlives a password change — which is the reason `users rm` exists and the reason the
+  account page lists every passkey with the date it was last used.
+- Every passkey endpoint acts only on the caller's own account. There is no path to another
+  administrator's credentials, so there is no authorization check to get wrong.
+- The two unauthenticated sign-in endpoints share the login endpoint's global rate limit, and
+  the pending-challenge table is capped with oldest-first eviction: conditional mediation means
+  an anonymous visitor mints one challenge per page load.
+
 ## Development
 
 ```sh
@@ -547,7 +627,8 @@ than a blank screen.
 
 ### Binary size
 
-The image is ~27 MB, of which the binary is ~7.3 MB. Three things get it there:
+The binary is ~9.9 MB for `linux/amd64` (~9.2 MB for `arm64`), and the image is a little
+under 30 MB. Three things get it there:
 
 - `CGO_ENABLED=0 -trimpath -ldflags "-s -w -buildid="` — drops the symbol table, DWARF
   and build ID, and takes a plain build from 11 MB to 7.7 MB.
@@ -556,6 +637,11 @@ The image is ~27 MB, of which the binary is ~7.3 MB. Three things get it there:
   memory rather than being recompressed per request. `internal/api/spa.go` registers a
   `foo.js.gz` under `/foo.js`, so nothing downstream knows.
 - A scratch-ish `alpine` runtime with only `ca-certificates` and `tzdata`.
+
+Passkey support accounts for 1.3 MB of that, which is what `github.com/go-webauthn/webauthn`
+and its dependency graph cost. The alternative was hand-writing WebAuthn verification against
+a CBOR decoder, and security code written once and maintained never is a worse liability than
+four modules.
 
 UPX would roughly halve what remains and is deliberately not used: it decompresses the
 whole binary into RAM at every start, defeats page-cache sharing between containers, and
@@ -589,6 +675,13 @@ cd web && npm run dev    # :5173, proxying /api to :80 so both look same-origin
   browser for the nodes it applies to.
 - **Automatic fallback** from proxy to direct. Deliberately not done, and not planned: it
   is how you end up silently shipping bearer tokens to a browser because a node blipped.
+- **Passkey-only accounts.** Every administrator keeps a password, because it is the recovery
+  path when a device is lost and the bootstrap credential when there is nothing else.
+- **Enterprise attestation** and a metadata-service trust anchor for passkeys, which would
+  need a policy nobody here wants to maintain.
+- **Username-first passkey sign-in.** Only discoverable credentials are used, so an
+  authenticator that cannot store one is enrolled but says so.
+- Managing another administrator's passkeys. `users rm` is the whole story.
 - Creating or revoking a node's API tokens from the panel.
 - Editing a node's `config.json` — it is read-only operator input, by design upstream.
 - Multi-user audit trails beyond the log line each change writes.

@@ -328,6 +328,31 @@ export function CheckIcon() {
   );
 }
 
+export function KeyIcon() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="8" cy="8" r="4" />
+      <path d="m11 11 8 8M16.5 16.5 15 18M19 14l-1.5 1.5" />
+    </svg>
+  );
+}
+
+export function TrashIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M5 7h14M10 4h4M6.5 7l.8 12A1.5 1.5 0 0 0 8.8 20h6.4a1.5 1.5 0 0 0 1.5-1L17.5 7" />
+    </svg>
+  );
+}
+
+export function PencilIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+    </svg>
+  );
+}
+
 /**
  * Sun and moon as paths: ☀ and ☾ have no emoji presentation in most fonts, so browsers
  * fall back to the text form — on Firefox the sun is a small asterisk.

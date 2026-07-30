@@ -207,7 +207,9 @@ const navigate = async (path) => {
 
 // --- 1. signed out ---
 await navigate("/");
-await waitFor('input[autocomplete="username"]');
+// A prefix match, not an exact one: with passkeys enabled the panel sets
+// autocomplete="username webauthn" so the browser can offer one from the autofill.
+await waitFor('input[autocomplete^="username"]');
 await sleep(400);
 await fitHeight();
 await shot("login");
