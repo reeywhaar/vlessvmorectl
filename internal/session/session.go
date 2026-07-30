@@ -54,6 +54,9 @@ const (
 
 // Record is a live session.
 type Record struct {
+	// AdminID names the administrator. Username is only a cached label for display, and
+	// can be stale after a rename — read it from the store when it matters.
+	AdminID  string
 	Username string
 
 	// Fingerprint is sha256(admin.PasswordHash)[:8] as of login.
@@ -127,7 +130,15 @@ func New(storage Storage, log *slog.Logger) *Table {
 			dropped++
 			continue
 		}
+		// Written before sessions named an admin id. Resolving the username would mean
+		// handing this package the admin store, which it deliberately does not have, so
+		// these are dropped and those people sign in once more.
+		if p.AdminID == "" {
+			dropped++
+			continue
+		}
 		t.byID[[32]byte(key)] = &Record{
+			AdminID:     p.AdminID,
 			Username:    p.Username,
 			Fingerprint: [8]byte(fp),
 			CreatedAt:   p.CreatedAt,
@@ -161,6 +172,7 @@ func (t *Table) flushLocked() {
 	for key, r := range t.byID {
 		list = append(list, store.PersistedSession{
 			Hash:        hex.EncodeToString(key[:]),
+			AdminID:     r.AdminID,
 			Username:    r.Username,
 			Fingerprint: hex.EncodeToString(r.Fingerprint[:]),
 			CreatedAt:   r.CreatedAt,
@@ -183,7 +195,7 @@ func (d discardHandler) WithGroup(string) slog.Handler           { return d }
 
 // Issue mints a session and returns the id to put in the cookie. The id is the only
 // time the raw value exists outside the caller's hands.
-func (t *Table) Issue(username string, fingerprint [8]byte, now time.Time) (string, *Record, error) {
+func (t *Table) Issue(adminID, username string, fingerprint [8]byte, now time.Time) (string, *Record, error) {
 	buf := make([]byte, idBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", nil, err
@@ -191,6 +203,7 @@ func (t *Table) Issue(username string, fingerprint [8]byte, now time.Time) (stri
 	id := base64.RawURLEncoding.EncodeToString(buf)
 
 	rec := &Record{
+		AdminID:     adminID,
 		Username:    username,
 		Fingerprint: fingerprint,
 		CreatedAt:   now,
@@ -257,13 +270,13 @@ func (t *Table) Delete(id string) {
 	}
 }
 
-// DeleteUser drops every session belonging to a username.
-func (t *Table) DeleteUser(username string) int {
+// DeleteAdmin drops every session belonging to one administrator.
+func (t *Table) DeleteAdmin(adminID string) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	n := 0
 	for k, r := range t.byID {
-		if r.Username == username {
+		if r.AdminID == adminID {
 			delete(t.byID, k)
 			n++
 		}

@@ -15,7 +15,13 @@ const SessionsFile = "sessions.json"
 // as tokens.json in the sibling project, and the reason this file is safe to write at
 // all. Somebody who reads it cannot replay any of it; they would need a preimage first.
 type PersistedSession struct {
-	Hash     string `json:"hash"`
+	Hash string `json:"hash"`
+
+	// AdminID is who this session belongs to. Rows written before it existed are dropped
+	// on restore rather than guessed at; see session.New.
+	AdminID string `json:"admin_id"`
+
+	// Username is a label for logs and hand-inspection only. AdminID is the identity.
 	Username string `json:"username"`
 
 	// Fingerprint is hex of sha256(admin.PasswordHash)[:8] as of login. Persisting it is

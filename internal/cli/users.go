@@ -29,7 +29,8 @@ Nobody can log in until at least one administrator exists, and there is no way t
 create the first one over the web — that would be a race against whoever reaches the
 URL first. A shell on this host is the bootstrap credential.`,
 	}
-	cmd.AddCommand(newUsersAddCmd(), newUsersListCmd(), newUsersRemoveCmd(), newUsersPasswdCmd())
+	cmd.AddCommand(newUsersAddCmd(), newUsersListCmd(), newUsersRemoveCmd(),
+		newUsersPasswdCmd(), newUsersRenameCmd())
 	return cmd
 }
 
@@ -101,13 +102,14 @@ func newUsersListCmd() *cobra.Command {
 				// only thing preventing that would be remembering not to. This is the
 				// obvious future mistake, so the type makes it impossible instead.
 				type row struct {
+					ID        string    `json:"id"`
 					Username  string    `json:"username"`
 					CreatedAt time.Time `json:"created_at"`
 					UpdatedAt time.Time `json:"updated_at"`
 				}
 				out := make([]row, 0, len(admins))
 				for _, a := range admins {
-					out = append(out, row{Username: a.Username, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
+					out = append(out, row{ID: a.ID, Username: a.Username, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt})
 				}
 				return writeJSON(cmd.OutOrStdout(), out)
 			}
@@ -208,6 +210,42 @@ func newUsersPasswdCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&dataDir, "data-dir", dataDirDefault(), "path to the data directory")
 	f.BoolVar(&passwordStdin, "password-stdin", false, "read the password from stdin")
+	return cmd
+}
+
+func newUsersRenameCmd() *cobra.Command {
+	var dataDir string
+
+	cmd := &cobra.Command{
+		Use:   "rename <username> <new-username>",
+		Short: "Change an administrator's username",
+		Long: `Change an administrator's username.
+
+Nobody is signed out. A session names the administrator's permanent id, not their name,
+so a rename is invisible to anyone already logged in — including on their other devices.
+
+The old name becomes free immediately, so it can be given to somebody else. That person
+is a different administrator and inherits nothing.`,
+		Args:         cobra.ExactArgs(2),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := store.Open(dataDir)
+			if err != nil {
+				return err
+			}
+			admin, err := st.Admins.Get(args[0])
+			if err != nil {
+				return err
+			}
+			if _, err := st.Admins.SetUsername(admin.ID, args[1], time.Now()); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "renamed administrator %s to %s\nwrote %s\n",
+				args[0], args[1], st.Admins.Path())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&dataDir, "data-dir", dataDirDefault(), "path to the data directory")
 	return cmd
 }
 

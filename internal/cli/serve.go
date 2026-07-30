@@ -71,6 +71,16 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 		return err
 	}
 
+	// The one place admins.json is brought up to the current format. Not fatal: the ids
+	// are already right in memory, so a failure here only means the file stays on the old
+	// version and the next write stamps it.
+	if n, err := st.Admins.Migrate(); err != nil {
+		log.Warn("could not rewrite admins.json in the current format; continuing",
+			"path", st.Admins.Path(), "error", err)
+	} else if n > 0 {
+		log.Info("gave existing administrators a permanent id", "administrators", n)
+	}
+
 	spa, err := api.NewSPA(web.Dist(), log)
 	if err != nil {
 		return fmt.Errorf("loading the frontend: %w", err)

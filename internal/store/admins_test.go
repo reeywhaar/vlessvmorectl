@@ -222,7 +222,7 @@ func TestSaveFailureLeavesMemoryUnchanged(t *testing.T) {
 func TestOpenRejectsBadFiles(t *testing.T) {
 	tests := []struct{ name, content string }{
 		{"unknown field", `{"version":1,"admins":[],"extra":true}`},
-		{"future version", `{"version":2,"admins":[]}`},
+		{"future version", `{"version":3,"admins":[]}`},
 		{"malformed", `{`},
 		{"empty username", `{"version":1,"admins":[{"username":"","password_hash":"$2a$12$abc"}]}`},
 		{"empty hash", `{"version":1,"admins":[{"username":"a","password_hash":""}]}`},
@@ -232,6 +232,14 @@ func TestOpenRejectsBadFiles(t *testing.T) {
 		{"duplicate usernames", `{"version":1,"admins":[
 			{"username":"a","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa"},
 			{"username":"A","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa"}]}`},
+		// Version 2 promises every record has an id. Deriving one from the username would
+		// be worse than refusing: if this id was random and somebody deleted the line, the
+		// substitute would silently point that admin's sessions somewhere else.
+		{"current version with no id", `{"version":2,"admins":[
+			{"username":"a","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa"}]}`},
+		{"duplicate ids", `{"version":2,"admins":[
+			{"id":"dup","username":"a","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa"},
+			{"id":"dup","username":"b","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa"}]}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -340,5 +348,228 @@ func TestFilePermissions(t *testing.T) {
 	}
 	if perm := fi.Mode().Perm(); perm != 0o600 {
 		t.Errorf("permissions = %o, want 600 — this file holds password hashes", perm)
+	}
+}
+
+// legacyFile is an admins.json as written before Admin.ID existed.
+const legacyFile = `{"version":1,"admins":[
+	{"username":"Alice","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa","created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:04:05Z"},
+	{"username":"bob","password_hash":"$2a$12$C6UzMDM.H6dfI/f/IKcEe.5Q0.2xUxKQ.LtWZDoO2ZQ5rZbLNFPTa","created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:04:05Z"}]}`
+
+func writeLegacy(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), AdminsFile)
+	if err := os.WriteFile(path, []byte(legacyFile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A record predating ids takes its normalised username, and every process that reads the
+// file agrees on that without anybody having written it back. The whole scheme rests on
+// this: a random id would depend on which process wrote first.
+func TestLegacyIDsAreTheUsernameAndAgreeAcrossReaders(t *testing.T) {
+	path := writeLegacy(t)
+
+	first, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatalf("OpenAdmins: %v", err)
+	}
+	second, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatalf("OpenAdmins: %v", err)
+	}
+
+	for _, a := range []*Admins{first, second} {
+		alice, err := a.Get("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Folded, so the id matches however the name was capitalised in the file.
+		if alice.ID != "alice" {
+			t.Errorf("id = %q, want %q", alice.ID, "alice")
+		}
+	}
+
+	// Reading must not have written: load is called on every reload and every CLI
+	// invocation, so it has no business touching the file.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != legacyFile {
+		t.Error("opening the file rewrote it; only Migrate may do that")
+	}
+}
+
+func TestMigrateStampsTheCurrentVersion(t *testing.T) {
+	path := writeLegacy(t)
+	a, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := a.Migrate()
+	if err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("Migrate reported %d records, want 2", n)
+	}
+
+	// Idempotent: a second call has nothing to do.
+	if n, err := a.Migrate(); err != nil || n != 0 {
+		t.Errorf("second Migrate = (%d, %v), want (0, nil)", n, err)
+	}
+
+	// And the file now says so, which is what stops a rollback from silently
+	// misreading it.
+	reopened, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatalf("reopening a migrated file: %v", err)
+	}
+	alice, err := reopened.Get("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice.ID != "alice" {
+		t.Errorf("id after migrating = %q", alice.ID)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"version": 2`) {
+		t.Errorf("migrated file is not stamped version 2:\n%s", raw)
+	}
+}
+
+// A new administrator gets a random id, never their username. That split is what makes a
+// deleted-and-recreated name a different administrator, so nothing pointing at the old one
+// can resolve to the new.
+func TestCreateMintsARandomID(t *testing.T) {
+	a := newStore(t)
+	created, err := a.Create("alice", pw, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.ID == "alice" {
+		t.Fatalf("id = %q, want a random one", created.ID)
+	}
+
+	if err := a.Delete("alice"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := a.Create("alice", pw, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID == created.ID {
+		t.Error("a recreated username reused the old id, so it would inherit the old identity")
+	}
+}
+
+func TestSetUsername(t *testing.T) {
+	a := newStore(t)
+	now := time.Now()
+	alice, err := a.Create("alice", pw, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Create("bob", pw, now); err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := a.SetUsername(alice.ID, "carol", now)
+	if err != nil {
+		t.Fatalf("SetUsername: %v", err)
+	}
+	if renamed.Username != "carol" {
+		t.Errorf("Username = %q", renamed.Username)
+	}
+	// The point of the id: it does not move, so sessions and anything else naming it are
+	// undisturbed. The fingerprint is unchanged too, so nobody is signed out.
+	if renamed.ID != alice.ID {
+		t.Errorf("id changed on rename: %q -> %q", alice.ID, renamed.ID)
+	}
+	if renamed.Fingerprint() != alice.Fingerprint() {
+		t.Error("fingerprint changed on rename, which would sign the admin out")
+	}
+
+	// The old name is free again.
+	if _, err := a.Get("alice"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("old username still resolves: %v", err)
+	}
+
+	// Somebody else's name, case-folded like every other username comparison.
+	if _, err := a.SetUsername(alice.ID, "BOB", now); !errors.Is(err, ErrConflict) {
+		t.Errorf("renaming onto a taken name: got %v, want ErrConflict", err)
+	}
+	// Re-capitalising your own name is not a conflict with yourself.
+	if _, err := a.SetUsername(alice.ID, "Carol", now); err != nil {
+		t.Errorf("changing only the case of one's own name: %v", err)
+	}
+	if _, err := a.SetUsername("nosuchid", "dave", now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown id: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetByID(t *testing.T) {
+	a := newStore(t)
+	alice, err := a.Create("alice", pw, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.GetByID(alice.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Username != "alice" {
+		t.Errorf("Username = %q", got.Username)
+	}
+	// Exact, not folded: nobody types an id.
+	if _, err := a.GetByID(strings.ToUpper(alice.ID)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetByID folded case: %v", err)
+	}
+}
+
+// Two processes write this file now, and neither sees the other's lock. A write that would
+// clobber an edit made underneath us is refused rather than merged.
+func TestAdminsSaveRefusesToClobberAnOutsideEdit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, AdminsFile)
+
+	daemon, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemon.Create("alice", pw, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	alice, err := daemon.Get("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Somebody runs `users passwd` in another process.
+	cli, err := OpenAdmins(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.SetPassword("alice", pw+"x", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The daemon's copy is now stale, so writing would lose that change.
+	if _, err := daemon.SetUsername(alice.ID, "carol", time.Now()); err == nil {
+		t.Fatal("want a refusal, got a write that would have clobbered the other process")
+	}
+
+	// Reload first, and it goes through.
+	if err := daemon.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemon.SetUsername(alice.ID, "carol", time.Now()); err != nil {
+		t.Errorf("after Reload: %v", err)
 	}
 }

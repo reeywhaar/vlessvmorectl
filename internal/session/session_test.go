@@ -17,11 +17,18 @@ import (
 
 var fp = [8]byte{1, 2, 3, 4, 5, 6, 7, 8}
 
+// Deliberately unlike the usernames beside them, so a test cannot pass by conflating the
+// two identifiers.
+const (
+	aliceID = "k7m2xa9v"
+	bobID   = "q4n8ptz3"
+)
+
 func TestIssueAndLookup(t *testing.T) {
 	tbl := NewInMemory()
 	now := time.Now()
 
-	id, rec, err := tbl.Issue("alice", fp, now)
+	id, rec, err := tbl.Issue(aliceID, "alice", fp, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +66,7 @@ func TestIssueAndLookup(t *testing.T) {
 // else would fail.
 func TestTheMapKeyIsNotTheReturnedID(t *testing.T) {
 	tbl := NewInMemory()
-	id, _, err := tbl.Issue("alice", fp, time.Now())
+	id, _, err := tbl.Issue(aliceID, "alice", fp, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +87,7 @@ func TestSlidingExpiry(t *testing.T) {
 	tbl := NewInMemory()
 	start := time.Now()
 
-	id, _, err := tbl.Issue("alice", fp, start)
+	id, _, err := tbl.Issue(aliceID, "alice", fp, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,14 +134,14 @@ func TestDeleteAndSweep(t *testing.T) {
 	tbl := NewInMemory()
 	now := time.Now()
 
-	id, _, _ := tbl.Issue("alice", fp, now)
+	id, _, _ := tbl.Issue(aliceID, "alice", fp, now)
 	tbl.Delete(id)
 	if _, _, ok := tbl.Lookup(id, now); ok {
 		t.Error("a deleted session still resolves")
 	}
 
-	a, _, _ := tbl.Issue("alice", fp, now)
-	b, _, _ := tbl.Issue("bob", fp, now)
+	a, _, _ := tbl.Issue(aliceID, "alice", fp, now)
+	b, _, _ := tbl.Issue(bobID, "bob", fp, now)
 	if n := tbl.Sweep(now.Add(Idle + time.Hour)); n != 2 {
 		t.Errorf("Sweep removed %d, want 2", n)
 	}
@@ -147,16 +154,16 @@ func TestDeleteAndSweep(t *testing.T) {
 	_ = b
 }
 
-func TestDeleteUser(t *testing.T) {
+func TestDeleteAdmin(t *testing.T) {
 	tbl := NewInMemory()
 	now := time.Now()
 
-	a1, _, _ := tbl.Issue("alice", fp, now)
-	a2, _, _ := tbl.Issue("alice", fp, now)
-	b1, _, _ := tbl.Issue("bob", fp, now)
+	a1, _, _ := tbl.Issue(aliceID, "alice", fp, now)
+	a2, _, _ := tbl.Issue(aliceID, "alice", fp, now)
+	b1, _, _ := tbl.Issue(bobID, "bob", fp, now)
 
-	if n := tbl.DeleteUser("alice"); n != 2 {
-		t.Errorf("DeleteUser removed %d, want 2", n)
+	if n := tbl.DeleteAdmin(aliceID); n != 2 {
+		t.Errorf("DeleteAdmin removed %d, want 2", n)
 	}
 	for _, id := range []string{a1, a2} {
 		if _, _, ok := tbl.Lookup(id, now); ok {
@@ -172,15 +179,15 @@ func TestMaxSessionsEvictsOldest(t *testing.T) {
 	tbl := NewInMemory()
 	base := time.Now()
 
-	first, _, _ := tbl.Issue("alice", fp, base)
+	first, _, _ := tbl.Issue(aliceID, "alice", fp, base)
 	for i := 1; i < MaxSessions; i++ {
-		tbl.Issue("alice", fp, base.Add(time.Duration(i)*time.Second))
+		tbl.Issue(aliceID, "alice", fp, base.Add(time.Duration(i)*time.Second))
 	}
 	if tbl.Len() != MaxSessions {
 		t.Fatalf("Len = %d, want %d", tbl.Len(), MaxSessions)
 	}
 
-	tbl.Issue("alice", fp, base.Add(time.Hour))
+	tbl.Issue(aliceID, "alice", fp, base.Add(time.Hour))
 	if tbl.Len() > MaxSessions {
 		t.Errorf("Len = %d, want at most %d", tbl.Len(), MaxSessions)
 	}
@@ -196,7 +203,7 @@ func TestIDsAreUnique(t *testing.T) {
 	now := time.Now()
 	seen := make(map[string]bool, 1000)
 	for range 1000 {
-		id, _, err := tbl.Issue("alice", fp, now)
+		id, _, err := tbl.Issue(aliceID, "alice", fp, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +219,7 @@ func TestIDsAreUnique(t *testing.T) {
 func TestLookupReturnsACopy(t *testing.T) {
 	tbl := NewInMemory()
 	now := time.Now()
-	id, _, _ := tbl.Issue("alice", fp, now)
+	id, _, _ := tbl.Issue(aliceID, "alice", fp, now)
 
 	got, _, _ := tbl.Lookup(id, now)
 	got.Username = "mallory"
@@ -230,7 +237,7 @@ func TestConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(3)
-		go func() { defer wg.Done(); tbl.Issue("alice", fp, now) }()
+		go func() { defer wg.Done(); tbl.Issue(aliceID, "alice", fp, now) }()
 		go func() { defer wg.Done(); tbl.Lookup("whatever", now) }()
 		go func() { defer wg.Done(); tbl.Sweep(now) }()
 	}
@@ -245,7 +252,7 @@ func TestSurvivesARestart(t *testing.T) {
 	now := time.Now()
 
 	before := New(store.OpenSessionFile(dir), log)
-	id, _, err := before.Issue("alice", fp, now)
+	id, _, err := before.Issue(aliceID, "alice", fp, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +278,7 @@ func TestPersistsOnlyHashes(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	tbl := New(store.OpenSessionFile(dir), log)
-	id, _, err := tbl.Issue("alice", fp, time.Now())
+	id, _, err := tbl.Issue(aliceID, "alice", fp, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +319,7 @@ func TestLogoutSurvivesARestart(t *testing.T) {
 	now := time.Now()
 
 	before := New(store.OpenSessionFile(dir), log)
-	id, _, _ := before.Issue("alice", fp, now)
+	id, _, _ := before.Issue(aliceID, "alice", fp, now)
 	before.Delete(id)
 
 	after := New(store.OpenSessionFile(dir), log)
@@ -329,7 +336,7 @@ func TestExpiredSessionsAreNotRestored(t *testing.T) {
 	long := time.Now().Add(-Idle - time.Hour)
 
 	before := New(store.OpenSessionFile(dir), log)
-	id, _, _ := before.Issue("alice", fp, long)
+	id, _, _ := before.Issue(aliceID, "alice", fp, long)
 
 	after := New(store.OpenSessionFile(dir), log)
 	if after.Len() != 0 {
@@ -355,7 +362,50 @@ func TestCorruptFileDoesNotPreventStartup(t *testing.T) {
 		t.Errorf("Len = %d, want 0", tbl.Len())
 	}
 	// And it still works from there.
-	if _, _, err := tbl.Issue("alice", fp, time.Now()); err != nil {
+	if _, _, err := tbl.Issue(aliceID, "alice", fp, time.Now()); err != nil {
 		t.Errorf("could not issue after a corrupt load: %v", err)
+	}
+}
+
+// A row written before sessions named an admin id is dropped rather than guessed at.
+// Resolving the username would mean handing this package the admin store, which it does
+// not have — so the cost of the change is that everyone signs in once more.
+func TestRestoreDropsRowsWithoutAnAdminID(t *testing.T) {
+	dir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	now := time.Now()
+
+	file := store.OpenSessionFile(dir)
+	// Distinct hashes: sharing one would let a map collision hide a broken drop rule.
+	legacyHash := sha256.Sum256([]byte("alice-cookie"))
+	currentHash := sha256.Sum256([]byte("bob-cookie"))
+	if err := file.Save([]store.PersistedSession{
+		{
+			Hash:        hex.EncodeToString(legacyHash[:]),
+			Username:    "alice",
+			Fingerprint: hex.EncodeToString(fp[:]),
+			CreatedAt:   now,
+			LastSeenAt:  now,
+			ExpiresAt:   now.Add(Idle),
+		},
+		{
+			Hash:        hex.EncodeToString(currentHash[:]),
+			AdminID:     bobID,
+			Username:    "bob",
+			Fingerprint: hex.EncodeToString(fp[:]),
+			CreatedAt:   now,
+			LastSeenAt:  now,
+			ExpiresAt:   now.Add(Idle),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tbl := New(file, log)
+	if tbl.Len() != 1 {
+		t.Fatalf("restored %d sessions, want 1 — the id-less row should have been dropped", tbl.Len())
+	}
+	if n := tbl.DeleteAdmin(bobID); n != 1 {
+		t.Errorf("the surviving row is not bob's: DeleteAdmin removed %d", n)
 	}
 }

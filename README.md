@@ -187,6 +187,7 @@ vlessvmorectl users add <username> [password]
 vlessvmorectl users ls [--json]
 vlessvmorectl users rm <username> [-y] [--force]
 vlessvmorectl users passwd <username> [password]
+vlessvmorectl users rename <username> <new-username>
 vlessvmorectl version
 ```
 
@@ -201,19 +202,23 @@ vlessvmorectl users add alice                  # prompts, with echo off
 echo hunter2 | vlessvmorectl users add alice --password-stdin
 ```
 
-The CLI is the only writer of `admins.json`; `serve` only reads it, and notices an
-out-of-band change within a second. So `docker exec … users add` takes effect on a running
-panel with no restart, and `users passwd` signs that person out **everywhere,
-immediately** — which is the entire point of changing a password after a suspected
-compromise.
+`serve` notices an out-of-band change to `admins.json` within a second, so
+`docker exec … users add` takes effect on a running panel with no restart, and
+`users passwd` signs that person out **everywhere, immediately** — which is the entire
+point of changing a password after a suspected compromise.
 
-`sessions.json` and `subscribers.json` are the mirror image: written only by the running
-panel, never by the CLI. Each file having exactly one writer is what lets two processes
-share a data directory without a lock or a socket protocol, and the CLI's handle on
-`subscribers.json` is read-only in code rather than by convention.
+`users rename` signs nobody out, not even on their other devices. An administrator has a
+permanent id that a session refers to, so their username is only a label. Giving the freed
+name to somebody else creates a different administrator who inherits nothing.
 
 `users rm` refuses to remove the last administrator without `--force`, since that locks
 everyone out of a running panel.
+
+`sessions.json` and `subscribers.json` are written only by the running panel, never by the
+CLI — one writer each, which is what lets two processes share a data directory without a
+lock or a socket protocol, and the CLI's handle on `subscribers.json` is read-only in code
+rather than by convention. `admins.json` is the one file both write, so the panel refuses to
+write over a version that changed underneath it and tells you to try again.
 
 ## Subscribers, and the page you hand them
 
@@ -401,6 +406,14 @@ bearer token is in there at all. Hence `BACKUP_PASSWORD` when the remote is not 
 keep that password somewhere other than the host being backed up.
 
 ## Things worth knowing
+
+**Upgrading to this version signs everyone out once.** Administrators gained a permanent
+id, and sessions now refer to it rather than to a username. Sessions saved by an older
+build have no id to refer to, and inventing one from the username would be guessing, so
+they are dropped on the first start and everyone signs in again. `admins.json` is rewritten
+once at startup to record the new ids; the old records keep their username as their id, so
+nothing else moves. Roll back after that and the old build will refuse to read the file
+rather than misread it — restore `admins.json` from a backup if you need to.
 
 **vlessvmore has no 401.** Every refusal it makes — no token, revoked token, unknown path,
 wrong method — is an identical `404 page not found` in `text/plain`, padded to a fixed

@@ -255,13 +255,17 @@ func (s *Server) authenticate(r *http.Request) (authedSession, string, bool) {
 		return authedSession{}, "", false
 	}
 
-	admin, err := s.store.Admins.Get(rec.Username)
+	admin, err := s.store.Admins.GetByID(rec.AdminID)
 	if err != nil || admin.Fingerprint() != rec.Fingerprint {
 		// Deleted, or the password changed from a shell. Either way this session is
 		// over, right now, everywhere.
 		s.sessions.Delete(c.Value)
 		return authedSession{}, "", false
 	}
+	// The record's copy of the name is from login and may predate a rename. rec is
+	// already a clone, so correcting it here costs nothing and keeps every caller
+	// reporting the name the store currently holds.
+	rec.Username = admin.Username
 	return authedSession{Record: rec, renewed: renewed}, c.Value, true
 }
 
@@ -366,7 +370,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.limiter.succeed(username)
 
-	id, _, err := s.sessions.Issue(admin.Username, admin.Fingerprint(), now)
+	id, _, err := s.sessions.Issue(admin.ID, admin.Username, admin.Fingerprint(), now)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not start a session: "+err.Error())
 		return

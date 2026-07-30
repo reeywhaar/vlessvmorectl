@@ -16,18 +16,24 @@
 // operator can read or repair them with a text editor, which matters when something has
 // gone wrong at 3am.
 //
-// Each file has exactly one writer, so no two processes ever contend for one:
+// Who writes what:
 //
-//	admins.json       written only by the CLI,    read by both
-//	sessions.json     written only by the daemon, read by the daemon
-//	subscribers.json  written only by the daemon, read by both
+//	admins.json       written by the CLI and the daemon, read by both
+//	sessions.json     written only by the daemon,        read by the daemon
+//	subscribers.json  written only by the daemon,        read by both
 //
-// `serve` never writes admins.json, so `docker exec … users add` and a running panel
-// cannot race; see Admins.ReloadIfChanged for how the daemon notices the edit. The other
-// two are the mirror image. sessions.json holds hashes rather than cookie values, which
-// is what makes writing it acceptable; see the session package. subscribers.json holds
-// share tokens in the clear because they must be re-readable, and enforces its
-// single-writer rule structurally — see Open, OpenForDaemon and ErrReadOnly.
+// The bottom two have exactly one writer each and so can never contend. sessions.json
+// holds hashes rather than cookie values, which is what makes writing it acceptable; see
+// the session package. subscribers.json holds share tokens in the clear because they must
+// be re-readable, and enforces its single-writer rule structurally — see Open,
+// OpenForDaemon and ErrReadOnly.
+//
+// admins.json is the exception, and used not to be. The daemon writes it to stamp the
+// current format at startup (Admins.Migrate). Two writers with no shared lock means a
+// `docker exec … users passwd` can land between the daemon's read and its write, so
+// Admins.saveLocked refuses to write over a file that moved underneath it and daemon-side
+// mutations call Admins.Reload first. Admins.ReloadIfChanged is still how a running panel
+// notices an edit made from a shell.
 package store
 
 import (

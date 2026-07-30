@@ -40,8 +40,23 @@ const (
 	MaxPasswordLen = 72
 )
 
+// adminsVersion is admins.json's own format version, separate from the jsonVersion the
+// other two files share: this one moved to 2 when Admin.ID appeared, and sessions.json
+// and subscribers.json have no reason to be dragged along.
+//
+// A version 1 file is read and migrated (see load). Anything higher than this is a file
+// written by a newer build, which we refuse rather than guess at.
+const adminsVersion = 2
+
 // Admin is one person who may log in to the panel.
 type Admin struct {
+	// ID is permanent and opaque; Username is a label that can change. Sessions and
+	// anything else naming an administrator across time name this instead.
+	//
+	// Records predating this field take their normalised username as the id (see load),
+	// so an id sometimes looks like a username — after a rename, the old one.
+	ID string `json:"id"`
+
 	Username string `json:"username"`
 
 	// PasswordHash is a bcrypt hash, which carries its own salt and cost, so raising
@@ -51,15 +66,12 @@ type Admin struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// There is deliberately no LastLoginAt.
+	// There is deliberately no LastLoginAt: a file write per authenticated request, for a
+	// field nothing here reads.
 	//
-	// Recording it would make `serve` a writer of this file, and `serve` runs in a
-	// different process from the CLI that creates and edits admins. The sibling
-	// project solves that by routing every CLI command through the daemon's unix
-	// socket; reproducing that here would mean a socket listener, a client and a
-	// dual-trust handler for the sake of four commands. Leaving the field out makes
-	// the CLI the only writer and the daemon a pure reader, and the whole problem
-	// disappears. See ReloadIfChanged.
+	// This used to also argue that the CLI is the only writer and the daemon a pure
+	// reader. That is no longer true — the daemon writes this file when an administrator
+	// changes their own username or password. Hence saveLocked's stat check.
 }
 
 // Fingerprint identifies this admin's *current* credential.
@@ -89,6 +101,11 @@ type Admins struct {
 	loadedSize    int64
 	loadedModTime time.Time
 	lastChecked   time.Time
+
+	// Set by load when the file is still on version 1; consumed by Migrate. filledIDs is
+	// how many of those records actually needed an id derived.
+	legacy    bool
+	filledIDs int
 }
 
 // OpenAdmins loads admins.json, treating a missing file as an empty list.
@@ -111,12 +128,23 @@ func (a *Admins) load() error {
 	if err != nil {
 		return err
 	}
-	if found && doc.Version != jsonVersion {
-		return fmt.Errorf("%s: unsupported version %d, this build understands %d", a.path, doc.Version, jsonVersion)
+	legacy := false
+	if found {
+		switch doc.Version {
+		case adminsVersion:
+		case 1:
+			// Before Admin.ID. Filled in below, and written back by Migrate.
+			legacy = true
+		default:
+			return fmt.Errorf("%s: unsupported version %d, this build understands %d", a.path, doc.Version, adminsVersion)
+		}
 	}
 
 	seen := make(map[string]bool, len(doc.Admins))
-	for i, ad := range doc.Admins {
+	ids := make(map[string]bool, len(doc.Admins))
+	filled := 0
+	for i := range doc.Admins {
+		ad := &doc.Admins[i]
 		if strings.TrimSpace(ad.Username) == "" {
 			return fmt.Errorf("%s: admins[%d]: username is empty", a.path, i)
 		}
@@ -125,6 +153,25 @@ func (a *Admins) load() error {
 			return fmt.Errorf("%s: admins[%d]: duplicate username %q", a.path, i, ad.Username)
 		}
 		seen[key] = true
+
+		switch {
+		case legacy && ad.ID == "":
+			// A record predating ids keeps the key it already had. Derived, not random:
+			// every process that reads this file computes the same answer, so it does not
+			// matter which one gets to write it back.
+			ad.ID = key
+			filled++
+		case ad.ID == "":
+			// Current version, so an id is not optional. Deriving one here would be worse
+			// than refusing: if this record's id was random and somebody deleted the line,
+			// the username we substituted would silently point their sessions elsewhere.
+			return fmt.Errorf("%s: admins[%d] (%s): id is empty", a.path, i, ad.Username)
+		}
+		if ids[ad.ID] {
+			return fmt.Errorf("%s: admins[%d] (%s): duplicate id %q", a.path, i, ad.Username, ad.ID)
+		}
+		ids[ad.ID] = true
+
 		if ad.PasswordHash == "" {
 			return fmt.Errorf("%s: admins[%d] (%s): password_hash is empty", a.path, i, ad.Username)
 		}
@@ -139,8 +186,29 @@ func (a *Admins) load() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.list = doc.Admins
+	a.legacy, a.filledIDs = legacy, filled
 	a.stampLoadedLocked()
 	return nil
+}
+
+// Migrate rewrites a version 1 file in the current format, and reports how many records
+// gained a derived id. Zero and no error means there was nothing to do.
+//
+// Called once at startup rather than from load, which runs on every ReloadIfChanged and
+// on every CLI invocation and has no business writing. Not calling it is safe: the ids are
+// already correct in memory, so the file simply stays on version 1 until some other write
+// stamps it.
+func (a *Admins) Migrate() (int, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.legacy {
+		return 0, nil
+	}
+	if err := a.saveLocked(); err != nil {
+		return 0, err
+	}
+	a.legacy = false
+	return a.filledIDs, nil
 }
 
 func (a *Admins) stampLoadedLocked() {
@@ -200,6 +268,10 @@ func (a *Admins) ReloadIfChanged(now time.Time) error {
 	return a.load()
 }
 
+// Reload re-reads the file unconditionally. ReloadIfChanged is the throttled per-request
+// one; this is for a caller about to write, where a stale copy means a lost update.
+func (a *Admins) Reload() error { return a.load() }
+
 // List returns a copy of the admins.
 func (a *Admins) List() []Admin {
 	a.mu.RLock()
@@ -226,6 +298,19 @@ func (a *Admins) Get(username string) (*Admin, error) {
 	return &ad, nil
 }
 
+// GetByID finds an admin by their permanent id. This is what the auth middleware
+// resolves a session against, so a rename disturbs no session.
+func (a *Admins) GetByID(id string) (*Admin, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	i := a.indexOfIDLocked(id)
+	if i < 0 {
+		return nil, fmt.Errorf("admin id %q: %w", id, ErrNotFound)
+	}
+	ad := a.list[i]
+	return &ad, nil
+}
+
 // Create adds an administrator.
 func (a *Admins) Create(username, password string, now time.Time) (*Admin, error) {
 	username = strings.TrimSpace(username)
@@ -243,14 +328,38 @@ func (a *Admins) Create(username, password string, now time.Time) (*Admin, error
 		return nil, fmt.Errorf("admin %q: %w", username, ErrConflict)
 	}
 
+	// Random, never the username: that is what makes a recreated "alice" a different
+	// administrator, so nothing pointing at the old one can resolve to her.
+	id, err := a.freshIDLocked()
+	if err != nil {
+		return nil, err
+	}
+
 	at := now.UTC().Truncate(time.Second)
-	ad := Admin{Username: username, PasswordHash: hash, CreatedAt: at, UpdatedAt: at}
+	ad := Admin{ID: id, Username: username, PasswordHash: hash, CreatedAt: at, UpdatedAt: at}
 	a.list = append(a.list, ad)
 	if err := a.saveLocked(); err != nil {
 		a.list = a.list[:len(a.list)-1]
 		return nil, err
 	}
 	return &ad, nil
+}
+
+// freshIDLocked mints an id no existing record holds. Caller holds the lock.
+//
+// The retry is for legacy ids, not randomID's entropy: those are usernames, so a value
+// like "admin123" is reachable, and load rejects a duplicate id outright.
+func (a *Admins) freshIDLocked() (string, error) {
+	for range 8 {
+		id, err := randomID()
+		if err != nil {
+			return "", err
+		}
+		if a.indexOfIDLocked(id) < 0 {
+			return id, nil
+		}
+	}
+	return "", errors.New("could not generate an unused administrator id")
 }
 
 // SetPassword replaces an administrator's password, which invalidates their live
@@ -269,6 +378,61 @@ func (a *Admins) SetPassword(username, password string, now time.Time) (*Admin, 
 	}
 	before := a.list[i]
 	a.list[i].PasswordHash = hash
+	a.list[i].UpdatedAt = now.UTC().Truncate(time.Second)
+	ad := a.list[i]
+	if err := a.saveLocked(); err != nil {
+		a.list[i] = before
+		return nil, err
+	}
+	return &ad, nil
+}
+
+// SetPasswordByID is SetPassword for a caller holding an id rather than a name.
+func (a *Admins) SetPasswordByID(id, password string, now time.Time) (*Admin, error) {
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	i := a.indexOfIDLocked(id)
+	if i < 0 {
+		return nil, fmt.Errorf("admin id %q: %w", id, ErrNotFound)
+	}
+	before := a.list[i]
+	a.list[i].PasswordHash = hash
+	a.list[i].UpdatedAt = now.UTC().Truncate(time.Second)
+	ad := a.list[i]
+	if err := a.saveLocked(); err != nil {
+		a.list[i] = before
+		return nil, err
+	}
+	return &ad, nil
+}
+
+// SetUsername renames an administrator. Nothing else moves: sessions name the id and the
+// login fingerprint comes from the password hash, so a rename signs nobody out.
+func (a *Admins) SetUsername(id, username string, now time.Time) (*Admin, error) {
+	username = strings.TrimSpace(username)
+	if err := validateUsername(username); err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	i := a.indexOfIDLocked(id)
+	if i < 0 {
+		return nil, fmt.Errorf("admin id %q: %w", id, ErrNotFound)
+	}
+	// Taken by somebody else. Taken by this same record is a no-op rather than a
+	// conflict, so correcting only the capitalisation of your own name works.
+	if j := a.indexOfLocked(username); j >= 0 && j != i {
+		return nil, fmt.Errorf("admin %q: %w", username, ErrConflict)
+	}
+
+	before := a.list[i]
+	a.list[i].Username = username
 	a.list[i].UpdatedAt = now.UTC().Truncate(time.Second)
 	ad := a.list[i]
 	if err := a.saveLocked(); err != nil {
@@ -343,8 +507,19 @@ var dummyHash = sync.OnceValue(func() []byte {
 // Warm precomputes what the first failed login would otherwise compute inline.
 func Warm() { _ = dummyHash() }
 
+// saveLocked rewrites the file, refusing to clobber an edit made underneath us.
+//
+// Two processes write it now — the CLI, and the daemon when somebody changes their own
+// username or password — and neither sees the other's lock, so this stat is all that
+// stands between a concurrent `users passwd` and a lost update. Daemon-side mutations
+// call Reload first to narrow the window. Same argument as Subscribers.saveLocked.
 func (a *Admins) saveLocked() error {
-	if err := writeJSONAtomic(a.path, adminsDoc{Version: jsonVersion, Admins: a.list}); err != nil {
+	if fi, err := os.Stat(a.path); err == nil {
+		if fi.Size() != a.loadedSize || !fi.ModTime().Equal(a.loadedModTime) {
+			return fmt.Errorf("%s changed on disk since this process read it; nothing was written — try again", a.path)
+		}
+	}
+	if err := writeJSONAtomic(a.path, adminsDoc{Version: adminsVersion, Admins: a.list}); err != nil {
 		return err
 	}
 	a.stampLoadedLocked()
@@ -356,6 +531,17 @@ func (a *Admins) indexOfLocked(username string) int {
 	key := normalizeUsername(username)
 	for i := range a.list {
 		if normalizeUsername(a.list[i].Username) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// indexOfIDLocked matches an id exactly — no case folding, since nobody types an id.
+// Caller holds the lock.
+func (a *Admins) indexOfIDLocked(id string) int {
+	for i := range a.list {
+		if a.list[i].ID == id {
 			return i
 		}
 	}
