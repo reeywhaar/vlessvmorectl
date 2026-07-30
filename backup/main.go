@@ -4,10 +4,12 @@
 // in backup_loop.sh, so a stuck run cannot silently skip the next one.
 //
 // A close sibling of vlessvmore's backup sidecar and of
-// github.com/Reeywhaar/vaultwarden_backup: same environment variables, log format and
-// retention policy. Unlike vlessvmore's it needs nothing from the panel — that one fetches
-// its archive from an HTTP endpoint because a live SQLite database cannot be copied file by
-// file, while everything this panel owns is JSON written by atomic rename.
+// github.com/Reeywhaar/vaultwarden_backup: same environment variables, same log format.
+// Retention follows vlessvmore's rather than vaultwarden_backup's — see retention.go.
+//
+// Unlike vlessvmore's it needs nothing from the panel: that one fetches its archive from an
+// HTTP endpoint because a live SQLite database cannot be copied file by file, while everything
+// this panel owns is JSON written by atomic rename.
 package main
 
 import (
@@ -116,14 +118,14 @@ func backup() error {
 }
 
 func cleanupLocalBackups(cfg config) {
-	log("cleanup", "Running local retention policy: 3 daily, 1 weekly, 1 monthly")
+	log("cleanup", "Running local retention policy: 3 today, 3 daily, 1 weekly, 1 monthly")
 
 	names, err := listLocalBackups(cfg.dir)
 	if err != nil {
 		logError("cleanup", "Failed to list local backups: "+err.Error())
 		return
 	}
-	for _, name := range toRemove(names, time.Now()) {
+	for _, name := range toRemove(names) {
 		log("cleanup", "Removing local: "+name)
 		if err := os.Remove(filepath.Join(cfg.dir, name)); err != nil {
 			logError("cleanup", fmt.Sprintf("Failed to remove local %s: %s", name, err))
@@ -135,14 +137,14 @@ func cleanupRemoteBackups(cfg config) {
 	if cfg.token == "" {
 		return
 	}
-	log("remote", "Running remote retention policy: 3 daily, 1 weekly, 1 monthly")
+	log("remote", "Running remote retention policy: 3 today, 3 daily, 1 weekly, 1 monthly")
 
 	names, err := listBackioBackups(cfg)
 	if err != nil {
 		logError("remote", "Failed to list remote backups: "+err.Error())
 		return
 	}
-	for _, name := range toRemove(names, time.Now()) {
+	for _, name := range toRemove(names) {
 		log("remote", "Removing remote: "+name)
 		if err := deleteBackioBackup(name, cfg); err != nil {
 			logError("remote", fmt.Sprintf("Failed to delete remote %s: %s", name, err))

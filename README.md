@@ -299,8 +299,8 @@ because a live SQLite database cannot be copied file by file.
       # same path the panel uses, so one VLESSVMORECTL_DATA_DIR means the same thing to
       # both containers if you ever set it.
       - ./data:/var/lib/vlessvmorectl:ro
-      # Local copies, rotated by the same retention policy as the remote. Drop this mount
-      # to keep backups remote-only.
+      # Local copies, rotated by the same retention policy as the remote: 3 from the newest
+      # day, 3 daily, 1 weekly, 1 monthly. Drop this mount to keep backups remote-only.
       - ./backups:/backups
 
     networks: [backup-net]
@@ -370,11 +370,15 @@ next change, so restoring underneath a running panel gets your file overwritten 
 satisfies retention, prunes the good copies behind it, and is discovered on the day it is
 needed. The likeliest cause is a mount that is not where this expects it.
 
-**Retention, applied to both the local directory and the remote:** the newest archive from
-each of the last three days it has one for, plus one at least a week old and one at least a
-month old. So five archives at most, whatever the interval. Each slot falls back to the
-oldest archive when nothing qualifies, so a young deployment deletes nothing. Names it does
-not recognise are left alone, including the sibling project's `vlessvmore-…` archives.
+**Retention, applied to both the local directory and the remote:** the three newest archives
+from the newest day, the newest archive of each of the three newest days, and the newest archive
+of the previous week and the previous month. So seven archives at most, whatever the interval.
+
+Every slot is a calendar bucket keeper — the newest archive of a day, an ISO week, a month —
+rather than an archive of a given age. A bucket's keeper is settled once the bucket ends, so each
+run prunes to the same set the last one did, and the week and month slots hold real week- and
+month-old copies instead of whatever the first run happened to pin. Names it does not recognise
+are left alone, including the sibling project's `vlessvmore-…` archives.
 
 Pruning the remote needs `read` and `delete` on the backio token; with a `create`-only token
 the uploads still work and the remote is not pruned. Every run logs one JSON line per step to
