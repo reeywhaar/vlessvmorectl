@@ -270,9 +270,8 @@ export function makeFake(opts: FakeOptions = {}): Fake {
         }
         return Promise.resolve(passkeyRoute(method, path, o));
       }
+      // No re-auth here, matching the real backend: a username is not a secret.
       if (path === "/api/account/username") {
-        const bad = reauth(o.body);
-        if (bad) return Promise.resolve(bad);
         username = String((o.body as { username: string }).username);
         return Promise.resolve(json({ username }));
       }

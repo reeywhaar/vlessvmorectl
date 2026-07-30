@@ -126,8 +126,7 @@ func TestChangeUsernameSignsNobodyOut(t *testing.T) {
 	phone := h.login()
 	laptop := h.login()
 
-	rec := h.do(http.MethodPost, "/api/account/username", laptop,
-		`{"current_password":"`+testPassword+`","username":"carol"}`)
+	rec := h.do(http.MethodPost, "/api/account/username", laptop, `{"username":"carol"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
@@ -180,11 +179,12 @@ func TestChangeUsernameRejections(t *testing.T) {
 		name, body string
 		want       int
 	}{
-		{"wrong current password", `{"current_password":"notitnotit","username":"carol"}`, http.StatusForbidden},
 		// Case-folded, matching how every other username comparison works here.
-		{"taken by somebody else", `{"current_password":"` + testPassword + `","username":"BOB"}`, http.StatusConflict},
-		{"blank", `{"current_password":"` + testPassword + `","username":"   "}`, http.StatusBadRequest},
-		{"contains a space", `{"current_password":"` + testPassword + `","username":"al ice"}`, http.StatusBadRequest},
+		{"taken by somebody else", `{"username":"BOB"}`, http.StatusConflict},
+		{"blank", `{"username":"   "}`, http.StatusBadRequest},
+		{"contains a space", `{"username":"al ice"}`, http.StatusBadRequest},
+		// No current_password field any more, so sending one is a typo, not a courtesy.
+		{"a password we no longer accept", `{"current_password":"x","username":"carol"}`, http.StatusBadRequest},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -205,8 +205,7 @@ func TestChangeUsernameRejections(t *testing.T) {
 func TestChangeUsernameToADifferentCaseOfItself(t *testing.T) {
 	h := newHarness(t, "")
 	cookie := h.login()
-	rec := h.do(http.MethodPost, "/api/account/username", cookie,
-		`{"current_password":"`+testPassword+`","username":"Alice"}`)
+	rec := h.do(http.MethodPost, "/api/account/username", cookie, `{"username":"Alice"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
@@ -225,8 +224,7 @@ func TestAccountRepliesCarryNoSecrets(t *testing.T) {
 	cookie := h.login()
 
 	bodies := []string{
-		h.do(http.MethodPost, "/api/account/username", cookie,
-			`{"current_password":"`+testPassword+`","username":"carol"}`).Body.String(),
+		h.do(http.MethodPost, "/api/account/username", cookie, `{"username":"carol"}`).Body.String(),
 		h.do(http.MethodPost, "/api/account/password", cookie,
 			`{"current_password":"`+testPassword+`","new_password":"`+newPassword+`"}`).Body.String(),
 	}

@@ -485,11 +485,8 @@ func (s *Server) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A counter that went backwards. Logged, not refused: a credential synced across two
-	// devices can regress it without being cloned, and turning that into an unexplained
-	// sign-in failure would be worse than the risk it flags. There is a test pinning this,
-	// so a library release that starts refusing on its own shows up as a red test rather
-	// than as an operator who cannot get in.
+	// Logged, not refused: a credential synced to two devices can regress the counter without
+	// being cloned. Pinned by a test, so a library release that starts refusing shows up red.
 	if cred.Authenticator.CloneWarning {
 		s.log.Warn("a passkey's signature counter went backwards, which can mean a cloned authenticator",
 			"user", resolved.Username, "sign_count", cred.Authenticator.SignCount)

@@ -331,8 +331,8 @@ export function CheckIcon() {
 export function KeyIcon() {
   return (
     <svg {...iconProps}>
-      <circle cx="8" cy="8" r="4" />
-      <path d="m11 11 8 8M16.5 16.5 15 18M19 14l-1.5 1.5" />
+      <circle cx="8" cy="16" r="4" />
+      <path d="M11 13l9-9M15 9l2 2M17.5 6.5l2 2" />
     </svg>
   );
 }

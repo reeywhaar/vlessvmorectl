@@ -301,10 +301,9 @@ func (p *Passkeys) NewHandle() (string, error) {
 
 // Add attaches a credential, creating the owner entry when this is their first.
 //
-// handle is used only when creating that entry. An existing entry with a different handle
-// means two first-time enrolments raced, and that is a conflict rather than something to
-// paper over: the authenticator has already stored the handle it was given, so silently
-// keeping the other one produces a credential that never resolves.
+// handle is used only for a new entry. An existing entry with a different one means two
+// first-time enrolments raced; that is a conflict, because the authenticator has already
+// stored the handle it was given.
 func (p *Passkeys) Add(adminID, handle string, cred PasskeyCredential, now time.Time) (*PasskeyCredential, error) {
 	if !p.writable {
 		return nil, ErrPasskeysReadOnly

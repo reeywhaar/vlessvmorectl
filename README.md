@@ -240,10 +240,10 @@ because punishing the person who just typed both passwords correctly would be th
 trade. Minimum eight characters, maximum 72 — bcrypt ignores anything past that, so a longer
 one would let a truncated version log in too.
 
-Both ask for your current password. That is not ceremony: a session borrowed from an
-unlocked laptop should not be enough to take the account over, and a username is half of
-what you type at the login prompt. Wrong guesses are rate limited in the same bucket as the
-login endpoint.
+Only the password change asks for your current one, and it is rate limited in the same bucket
+as the login endpoint. That change can lock the real owner out, so proving you are not merely
+holding a borrowed session is worth the friction. A username is not a secret and changing it
+grants nothing, so asking again there would be ceremony.
 
 There is still no way to *create* the first administrator from the web, and no way to touch
 somebody else's account from it. Both remain `vlessvmorectl users …` on a shell.

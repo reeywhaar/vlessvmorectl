@@ -29,15 +29,18 @@ export function postAccountPassword(currentPassword: string, newPassword: string
  *
  * Signs nobody out, not even on other devices: a session names the administrator's
  * permanent id, so the name is only a label.
+ *
+ * No current password, unlike the endpoint above. A username is not a secret and changing it
+ * grants nothing, so the session is proof enough.
  */
-export function postAccountUsername(currentPassword: string, username: string) {
+export function postAccountUsername(username: string) {
   return createApiDispatcherAction((d) =>
     d
       .call<{ username: string }>({
         scope: "panel",
         method: "POST",
         path: "/api/account/username",
-        body: { current_password: currentPassword, username },
+        body: { username },
       })
       .then((r) => r.username),
   );

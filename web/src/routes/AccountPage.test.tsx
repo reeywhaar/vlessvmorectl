@@ -17,35 +17,37 @@ describe("AccountPage", () => {
     expect(screen.getByDisplayValue("alice")).toBeTruthy();
   });
 
-  it("posts a username change with the current password", async () => {
+  // No current password: a username is not a secret, and the session already says who you are.
+  it("posts a username change with no password", async () => {
     const fake = render();
     await screen.findByRole("heading", { name: "Account" });
 
     const field = screen.getByLabelText("Username");
     await userEvent.clear(field);
     await userEvent.type(field, "carol");
-    await userEvent.type(screen.getAllByLabelText("Current password")[0]!, FAKE_PASSWORD);
     await userEvent.click(screen.getByRole("button", { name: "Change username" }));
 
     expect(await screen.findByText("Username changed.")).toBeTruthy();
     expect(fake.calls).toContain("PANEL POST /api/account/username");
-    expect(fake.bodies).toContainEqual({ current_password: FAKE_PASSWORD, username: "carol" });
+    expect(fake.bodies).toContainEqual({ username: "carol" });
+    // And the card asks for exactly one thing.
+    expect(screen.getAllByLabelText("Current password")).toHaveLength(1);
   });
 
-  // Nothing to change is not a thing to submit, and the current-password field alone must
-  // not be enough to arm it.
   it("keeps the username button disabled until the name actually differs", async () => {
     render();
     await screen.findByRole("heading", { name: "Account" });
-    await userEvent.type(screen.getAllByLabelText("Current password")[0]!, FAKE_PASSWORD);
     expect(screen.getByRole("button", { name: "Change username" })).toHaveProperty("disabled", true);
+
+    await userEvent.type(screen.getByLabelText("Username"), "x");
+    expect(screen.getByRole("button", { name: "Change username" })).toHaveProperty("disabled", false);
   });
 
   it("posts a password change and says the other devices are out", async () => {
     const fake = render();
     await screen.findByRole("heading", { name: "Account" });
 
-    await userEvent.type(screen.getAllByLabelText("Current password")[1]!, FAKE_PASSWORD);
+    await userEvent.type(screen.getByLabelText("Current password"), FAKE_PASSWORD);
     await userEvent.type(screen.getByLabelText(/^New password/), "brandnewpassword");
     await userEvent.type(screen.getByLabelText("Repeat new password"), "brandnewpassword");
     await userEvent.click(screen.getByRole("button", { name: "Change password" }));
@@ -66,7 +68,7 @@ describe("AccountPage", () => {
     const fake = render();
     await screen.findByRole("heading", { name: "Account" });
 
-    await userEvent.type(screen.getAllByLabelText("Current password")[1]!, FAKE_PASSWORD);
+    await userEvent.type(screen.getByLabelText("Current password"), FAKE_PASSWORD);
     await userEvent.type(screen.getByLabelText(/^New password/), "brandnewpassword");
     await userEvent.type(screen.getByLabelText("Repeat new password"), "brandnewpasswmrd");
 
@@ -79,22 +81,21 @@ describe("AccountPage", () => {
     render();
     await screen.findByRole("heading", { name: "Account" });
 
-    const field = screen.getByLabelText("Username");
-    await userEvent.clear(field);
-    await userEvent.type(field, "carol");
-    await userEvent.type(screen.getAllByLabelText("Current password")[0]!, "notitnotit");
-    await userEvent.click(screen.getByRole("button", { name: "Change username" }));
+    await userEvent.type(screen.getByLabelText("Current password"), "notitnotit");
+    await userEvent.type(screen.getByLabelText(/^New password/), "brandnewpassword");
+    await userEvent.type(screen.getByLabelText("Repeat new password"), "brandnewpassword");
+    await userEvent.click(screen.getByRole("button", { name: "Change password" }));
 
     expect(await screen.findByText("That is not your current password.")).toBeTruthy();
-    // The new name survives, so the operator only has to fix the password.
-    expect(screen.getByDisplayValue("carol")).toBeTruthy();
+    // What was typed survives, so only the wrong field has to be fixed.
+    expect(screen.getByLabelText(/^New password/)).toHaveProperty("value", "brandnewpassword");
   });
 
   it("clears the password fields after a success, so nothing is left sitting in the DOM", async () => {
     render();
     await screen.findByRole("heading", { name: "Account" });
 
-    const current = screen.getAllByLabelText("Current password")[1]!;
+    const current = screen.getByLabelText("Current password");
     await userEvent.type(current, FAKE_PASSWORD);
     await userEvent.type(screen.getByLabelText(/^New password/), "brandnewpassword");
     await userEvent.type(screen.getByLabelText("Repeat new password"), "brandnewpassword");

@@ -39,7 +39,6 @@ export function AccountPage() {
 
 function UsernameCard({ current }: { current: string }) {
   const [username, setUsername] = useState(current);
-  const [currentPassword, setCurrentPassword] = useState("");
   const [done, setDone] = useState(false);
   const change = useChangeUsername();
 
@@ -56,15 +55,7 @@ function UsernameCard({ current }: { current: string }) {
         onSubmit={(e) => {
           e.preventDefault();
           setDone(false);
-          change.mutate(
-            { currentPassword, username: username.trim() },
-            {
-              onSuccess: () => {
-                setCurrentPassword("");
-                setDone(true);
-              },
-            },
-          );
+          change.mutate({ username: username.trim() }, { onSuccess: () => setDone(true) });
         }}
       >
         <Field label="Username">
@@ -78,26 +69,13 @@ function UsernameCard({ current }: { current: string }) {
             required
           />
         </Field>
-        <Field label="Current password">
-          <Input
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
-        </Field>
 
-        <FormNote
-          error={change.error}
-          done={done}
-          doneMessage="Username changed."
-        />
+        <FormNote error={change.error} done={done} doneMessage="Username changed." />
 
         <Button
           type="submit"
           variant="primary"
-          disabled={change.isPending || unchanged || !username.trim() || !currentPassword}
+          disabled={change.isPending || unchanged || !username.trim()}
         >
           {change.isPending ? "Saving…" : "Change username"}
         </Button>

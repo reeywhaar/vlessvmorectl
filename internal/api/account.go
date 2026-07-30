@@ -12,9 +12,10 @@ import (
 // password moves the fingerprint every session was issued against and so ends all of them,
 // while a new username moves nothing at all.
 //
-// Both re-check the current password. A username is half of what you type at the login
-// prompt, so changing it is a credential change and not a profile edit — and a session
-// borrowed from an unlocked laptop should not be enough to take an account over.
+// Only the password change re-checks the current password, and the asymmetry is deliberate.
+// That one can lock the real owner out of their own account, so proving you are not just
+// holding a borrowed session is worth the friction. A username is not a secret and grants
+// nothing — the session already says who you are — so asking again would be ceremony.
 
 type changePasswordRequest struct {
 	CurrentPassword string `json:"current_password"`
@@ -22,8 +23,7 @@ type changePasswordRequest struct {
 }
 
 type changeUsernameRequest struct {
-	CurrentPassword string `json:"current_password"`
-	Username        string `json:"username"`
+	Username string `json:"username"`
 }
 
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +66,7 @@ func (s *Server) changeUsername(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	admin, ok := s.reauthenticate(w, r, req.CurrentPassword)
+	admin, ok := s.currentAdmin(w, r)
 	if !ok {
 		return
 	}
@@ -84,12 +84,12 @@ func (s *Server) changeUsername(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"username": updated.Username})
 }
 
-// reauthenticate resolves the caller and checks the password they just typed.
+// currentAdmin resolves the caller against a freshly read admins.json.
 //
-// The reload is not optional: this is about to write admins.json, and saveLocked refuses
-// on a copy that has gone stale, so re-reading first is what stops a concurrent
+// The reload is not optional: both handlers are about to write that file, and saveLocked
+// refuses on a copy that has gone stale, so re-reading first is what stops a concurrent
 // `users passwd` from turning into a confusing failure.
-func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request, password string) (*store.Admin, bool) {
+func (s *Server) currentAdmin(w http.ResponseWriter, r *http.Request) (*store.Admin, bool) {
 	rec, ok := sessionFrom(r.Context())
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
@@ -107,6 +107,16 @@ func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request, password
 	if err != nil {
 		// Deleted from a shell between requireSession and here.
 		writeError(w, http.StatusUnauthorized, "not authenticated")
+		return nil, false
+	}
+	return admin, true
+}
+
+// reauthenticate is currentAdmin plus proof that the caller knows the password they are
+// about to replace.
+func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request, password string) (*store.Admin, bool) {
+	admin, ok := s.currentAdmin(w, r)
+	if !ok {
 		return nil, false
 	}
 

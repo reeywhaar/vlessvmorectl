@@ -374,8 +374,7 @@ export function useChangeUsername() {
   const callApi = useApiCall();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ currentPassword, username }: { currentPassword: string; username: string }) =>
-      callApi(postAccountUsername(currentPassword, username)),
+    mutationFn: ({ username }: { username: string }) => callApi(postAccountUsername(username)),
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.session }),
   });
 }

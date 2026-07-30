@@ -99,11 +99,7 @@ async function exclusive<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T
 
 export interface RegistrationResult {
   credential: unknown;
-  /**
-   * False when the authenticator did *not* store a discoverable credential, so this passkey
-   * can never be used for a usernameless sign-in. Worth saying out loud rather than storing
-   * something that will never work.
-   */
+  /** False when the authenticator stored no discoverable credential, so it can never sign in. */
   discoverable: boolean;
 }
 
@@ -171,11 +167,8 @@ export async function getPasskeyAssertion(
   });
 }
 
-/**
- * The transport values a browser will accept. An unrecognised one throws a TypeError in
- * Chrome, so a value the server has stored from a future authenticator must be dropped
- * rather than passed through.
- */
+// An unrecognised transport throws a TypeError in Chrome, so anything the server has stored
+// from a newer authenticator is dropped rather than passed through.
 const KNOWN_TRANSPORTS = new Set(["usb", "nfc", "ble", "hybrid", "internal", "smart-card"]);
 
 function descriptors(

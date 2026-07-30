@@ -1,10 +1,8 @@
 /**
  * base64url, the encoding every WebAuthn buffer crosses the wire as.
  *
- * Small enough to hand-roll, and worth hand-rolling: the failure mode of getting this wrong
- * is silent. `JSON.stringify(new Uint8Array([1, 2]))` produces `{"0":1,"1":2}` rather than
- * throwing, so a buffer that never reached one of these functions arrives at the server as
- * an object, and the error it provokes points nowhere near the cause.
+ * Skipping one of these fails silently: `JSON.stringify` turns a Uint8Array into
+ * `{"0":1,"1":2}` rather than throwing.
  */
 
 export function toBase64Url(data: ArrayBuffer | Uint8Array): string {
@@ -14,11 +12,8 @@ export function toBase64Url(data: ArrayBuffer | Uint8Array): string {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/**
- * The return type is pinned to `Uint8Array<ArrayBuffer>` rather than the default
- * `ArrayBufferLike`, because that is what `BufferSource` requires: a plain `Uint8Array` also
- * admits a SharedArrayBuffer backing, which the DOM's credential types reject.
- */
+// Uint8Array<ArrayBuffer>, not the default ArrayBufferLike: BufferSource rejects a
+// SharedArrayBuffer backing, so the narrower type is what the credential APIs accept.
 export function fromBase64Url(s: string): Uint8Array<ArrayBuffer> {
   const padded = s.replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
