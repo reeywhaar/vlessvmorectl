@@ -3,11 +3,11 @@ import {
   BarChart,
   CartesianGrid,
   Rectangle,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  type BandPosition,
   type BarShapeProps,
 } from "recharts";
 import { formatBytes, formatLocalDay, formatLocalHour, formatUTCDate } from "../../lib/format";
@@ -49,8 +49,16 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
     <div className="h-56 w-full">
       <ResponsiveContainer>
         <BarChart data={points} margin={{ top: 8, right: 4, bottom: 0, left: 4 }} barCategoryGap="18%">
-          {/* Solid hairlines, never dashed: a dashed grid competes with the marks. */}
-          <CartesianGrid stroke="var(--color-line)" vertical={false} />
+          {/*
+            Solid hairlines, never dashed: a dashed grid competes with the marks. Vertically
+            there is no grid at all — only the day boundaries, drawn here rather than as
+            ReferenceLines so they can sit on a column's edge; see dayEdges.
+          */}
+          <CartesianGrid
+            stroke="var(--color-line)"
+            vertical={byDay}
+            verticalCoordinatesGenerator={({ xAxis }) => dayEdges(days, xAxis?.scale)}
+          />
           <XAxis
             dataKey="t"
             // A spread, because exactOptionalPropertyTypes rejects an explicit undefined.
@@ -83,10 +91,6 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
             labelFormatter={(t, payload) => bucketLabel(Number(t), bucket, spanOf(payload))}
             formatter={(value, name) => [formatBytes(Number(value)), name === "down" ? "Down" : "Up"]}
           />
-          {/* Before the bars, so the columns sit on top of the line rather than behind it. */}
-          {byDay
-            ? days.map((t) => <ReferenceLine key={t} x={t} stroke="var(--color-line)" />)
-            : null}
           <Bar
             dataKey="down"
             stackId="t"
@@ -130,6 +134,24 @@ function bucketShape({ x, y, width, height, fill, radius, payload }: BarShapePro
       opacity={payload?.partial ? 0.45 : 1}
     />
   );
+}
+
+/** Just enough of Recharts' scale to ask where a column starts. */
+type BandScale = { map(v: unknown, options?: { position?: BandPosition }): number | undefined };
+
+/**
+ * The pixel x of each day boundary, at the start of a column rather than its middle.
+ *
+ * `position: "start"` is the whole point, and the reason these are gridlines rather than
+ * ReferenceLines: a ReferenceLine asks the band scale for the middle of the band, so the line
+ * ran down the centre of the day's first column. Invisible while the columns were three pixels
+ * wide, plainly wrong once they are four hours of traffic.
+ */
+function dayEdges(days: number[], scale: BandScale | undefined): number[] {
+  if (!scale) return [];
+  return days
+    .map((t) => scale.map(t, { position: "start" }))
+    .filter((x): x is number => x !== undefined);
 }
 
 /** How many buckets the hovered column covers, off the datum Recharts hands the tooltip. */
