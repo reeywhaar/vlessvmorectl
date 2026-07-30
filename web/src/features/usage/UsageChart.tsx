@@ -63,9 +63,16 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
             dataKey="t"
             // A spread, because exactOptionalPropertyTypes rejects an explicit undefined.
             {...(byDay ? { ticks: days } : {})}
-            tickFormatter={label}
             stroke="var(--color-line)"
-            tick={{ fill: "var(--color-muted)", fontSize: 11 }}
+            // Still set even though BandStartTick does the formatting: this is what Recharts
+            // measures to decide how many labels fit, and without it the width it estimates is
+            // the width of a 13-digit epoch, so it drops two thirds of them.
+            tickFormatter={label}
+            // Mark and label both drawn by BandStartTick instead, on the column's leading edge.
+            tickLine={false}
+            tick={<BandStartTick />}
+            tickSize={TICK_SIZE}
+            tickMargin={TICK_MARGIN}
             // Kept even with explicit ticks, so a narrow window drops labels rather than
             // overlapping them.
             minTickGap={28}
@@ -133,6 +140,57 @@ function bucketShape({ x, y, width, height, fill, radius, payload }: BarShapePro
       radius={radius ?? 0}
       opacity={payload?.partial ? 0.45 : 1}
     />
+  );
+}
+
+/** Mark length, and the gap between it and the label. Recharts' own defaults, named because
+ *  BandStartTick has to place both itself. */
+const TICK_SIZE = 6;
+const TICK_MARGIN = 3;
+
+/**
+ * A tick at the start of its column rather than the middle of it.
+ *
+ * A column is an interval and its label names when that interval began, so the mark belongs on
+ * the leading edge — between two columns, on the same line the day boundaries use. Recharts
+ * centres category ticks on the band, which put "3 PM" under the middle of the 3–4 PM column
+ * and read as a mark pointing at a bar rather than at a time.
+ *
+ * `payload.offset` is the half-band recharts added to centre it, so taking that back off is
+ * exact at any width. Everything else here — the mark, the type size, the colours — is what
+ * `tickLine` and `tick` were doing before, moved into one place because a custom tick has to
+ * draw the whole thing.
+ */
+function BandStartTick({
+  x,
+  y,
+  payload,
+  index,
+  tickFormatter,
+  className,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value: number; offset: number };
+  index?: number;
+  tickFormatter?: (value: number, index: number) => string;
+  className?: string;
+}) {
+  if (x == null || y == null || payload == null) return null;
+
+  const edge = x - payload.offset;
+  // Recharts hands over the label's y, which sits TICK_SIZE + TICK_MARGIN below the axis line.
+  const axis = y - TICK_SIZE - TICK_MARGIN;
+  return (
+    // The className and the fontSize both have to be here: Recharts finds the first tick by
+    // that class and reads its computed font size to work out how many labels fit. Drop either
+    // and it measures the document default instead, and thins the axis by a third.
+    <g className={className} fontSize={11}>
+      <line x1={edge} y1={axis} x2={edge} y2={axis + TICK_SIZE} stroke="var(--color-line)" />
+      <text x={edge} y={y} dy={9} textAnchor="middle" fill="var(--color-muted)">
+        {tickFormatter ? tickFormatter(payload.value, index ?? 0) : payload.value}
+      </text>
+    </g>
   );
 }
 
