@@ -2,12 +2,13 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
+  Rectangle,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  type BarShapeProps,
 } from "recharts";
 import { formatBytes, formatLocalDay, formatLocalHour, formatUTCDate } from "../../lib/format";
 import { byteTicks, dayBoundaries, type FilledPoint } from "./series";
@@ -86,19 +87,48 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
           {byDay
             ? days.map((t) => <ReferenceLine key={t} x={t} stroke="var(--color-line)" />)
             : null}
-          <Bar dataKey="down" stackId="t" fill="var(--color-series-down)" name="down">
-            {points.map((p) => (
-              <Cell key={p.t} opacity={p.partial ? 0.45 : 1} />
-            ))}
-          </Bar>
-          <Bar dataKey="up" stackId="t" fill="var(--color-series-up)" name="up" radius={[3, 3, 0, 0]}>
-            {points.map((p) => (
-              <Cell key={p.t} opacity={p.partial ? 0.45 : 1} />
-            ))}
-          </Bar>
+          <Bar
+            dataKey="down"
+            stackId="t"
+            fill="var(--color-series-down)"
+            name="down"
+            shape={bucketShape}
+          />
+          <Bar
+            dataKey="up"
+            stackId="t"
+            fill="var(--color-series-up)"
+            name="up"
+            radius={[3, 3, 0, 0]}
+            shape={bucketShape}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+/**
+ * One column, faded while its bucket is still accumulating.
+ *
+ * A `shape` function rather than a `<Cell>` per point: Cell is deprecated in Recharts 3 and
+ * goes in 4, and it was the wrong tool anyway — the fade comes from a field on the datum, not
+ * from the column's position.
+ *
+ * The props are picked out rather than spread, because BarShapeProps carries chart internals
+ * (tooltipPosition, parentViewBox, …) that React would pass on to the DOM.
+ */
+function bucketShape({ x, y, width, height, fill, radius, payload }: BarShapeProps) {
+  return (
+    <Rectangle
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      fill={fill}
+      radius={radius ?? 0}
+      opacity={payload?.partial ? 0.45 : 1}
+    />
   );
 }
 
