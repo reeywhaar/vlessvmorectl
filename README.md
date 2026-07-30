@@ -300,7 +300,8 @@ because a live SQLite database cannot be copied file by file.
       # both containers if you ever set it.
       - ./data:/var/lib/vlessvmorectl:ro
       # Local copies, rotated by the same retention policy as the remote: 3 from the newest
-      # day, 3 daily, 1 weekly, 1 monthly. Drop this mount to keep backups remote-only.
+      # day, 3 daily, 1 weekly, 1 monthly. Drop this mount and no local copies are kept at
+      # all — each archive is uploaded from a temp directory and deleted.
       - ./backups:/backups
 
     networks: [backup-net]
@@ -351,7 +352,7 @@ volumes:
 | `BACKIO_PROVIDER` | `gdrive` | rclone remote name |
 | `BACKUP_TOKEN` | unset | backio token; **unset means local copies only, no upload** |
 | `BACKUP_PASSWORD` | unset | when set, upload a 7z AES-256 `.zip` instead of the plain `.tgz` |
-| `BACKUP_DIR` | `/backups` | where local copies are kept |
+| `BACKUP_DIR` | `/backups` | where local copies are kept; set it and copies are always kept there |
 
 Archives are named `vlessvmorectl-<YYYYMMDD_HHMMSS>.<tgz|zip>`, mode `0600`, and hold every
 file under a single top-level `data/` — so extracting one over a deployment directory puts
@@ -369,6 +370,14 @@ next change, so restoring underneath a running panel gets your file overwritten 
 **An empty data directory is an error, not an empty archive** — that one uploads cleanly,
 satisfies retention, prunes the good copies behind it, and is discovered on the day it is
 needed. The likeliest cause is a mount that is not where this expects it.
+
+**Mount nothing at `/backups` and no local copies are kept at all.** The image does not create
+that directory and Docker creates a mount target that the image is missing, so the directory
+exists exactly when a volume is mounted over it. Without one, each archive goes to a temp
+directory that the run deletes once the upload is done — a copy in the container's writable
+layer would vanish with the container anyway, which is the one moment a local copy would have
+earned its keep. With neither a volume nor a `BACKUP_TOKEN` there is nowhere to put the archive,
+and the run says so and exits non-zero rather than backing up to nothing.
 
 **Retention, applied to both the local directory and the remote:** the three newest archives
 from the newest day, the newest archive of each of the three newest days, and the newest archive
