@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byteTicks, zeroFill } from "./series";
+import { byteTicks, dayBoundaries, zeroFill, type FilledPoint } from "./series";
 import { HOUR_MS, snapRange, type SnappedRange } from "../../lib/range";
 import { formatBytes } from "../../lib/format";
 
@@ -82,6 +82,56 @@ describe("zeroFill", () => {
     const filled = zeroFill([{ bucket: "not a date", up: 1, down: 1 }], hourRange(2, end));
 
     expect(filled.every((p) => Number.isFinite(p.total))).toBe(true);
+  });
+});
+
+describe("dayBoundaries", () => {
+  /** Hourly buckets from a local midnight, which is what the 7-day chart is made of. */
+  function hourly(start: number, count: number): FilledPoint[] {
+    return Array.from({ length: count }, (_, i) => ({
+      t: start + i * H,
+      up: 0,
+      down: 0,
+      total: 0,
+      partial: i === count - 1,
+    }));
+  }
+
+  it("marks the first bucket of each day but not the first bucket of the range", () => {
+    const midnight = new Date(2026, 6, 27, 0, 0, 0, 0).getTime();
+
+    expect(dayBoundaries(hourly(midnight, 72))).toEqual([
+      new Date(2026, 6, 28, 0, 0, 0, 0).getTime(),
+      new Date(2026, 6, 29, 0, 0, 0, 0).getTime(),
+    ]);
+  });
+
+  /** The 24-hour chart starts mid-day, so its one boundary is wherever the date turns over. */
+  it("finds the turnover in a range that does not start at midnight", () => {
+    const noon = new Date(2026, 6, 27, 12, 0, 0, 0).getTime();
+
+    expect(dayBoundaries(hourly(noon, 24))).toEqual([new Date(2026, 6, 28, 0, 0, 0, 0).getTime()]);
+  });
+
+  // What tells UsageChart to keep labelling hours rather than days.
+  it("returns nothing for a range inside one day", () => {
+    const morning = new Date(2026, 6, 27, 1, 0, 0, 0).getTime();
+
+    expect(dayBoundaries(hourly(morning, 6))).toEqual([]);
+    expect(dayBoundaries([])).toEqual([]);
+  });
+
+  /**
+   * Local, not UTC. A bucket is a UTC hour start, so anywhere east or west of Greenwich the
+   * UTC date turns over in the middle of somebody's afternoon — and a boundary drawn there
+   * would sit under a column labelled 4 PM.
+   */
+  it("splits on the local date, not the UTC one", () => {
+    const localMidnight = new Date(2026, 6, 28, 0, 0, 0, 0);
+    const [boundary] = dayBoundaries(hourly(localMidnight.getTime() - 3 * H, 6));
+
+    expect(boundary).toBe(localMidnight.getTime());
+    expect(new Date(boundary!).getHours()).toBe(0);
   });
 });
 

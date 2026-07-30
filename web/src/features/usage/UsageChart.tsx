@@ -3,13 +3,14 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { formatBytes, formatLocalHour, formatUTCDate } from "../../lib/format";
-import { byteTicks, type FilledPoint } from "./series";
+import { formatBytes, formatLocalDay, formatLocalHour, formatUTCDate } from "../../lib/format";
+import { byteTicks, dayBoundaries, type FilledPoint } from "./series";
 import type { Bucket } from "../../lib/range";
 
 /**
@@ -27,7 +28,16 @@ import type { Bucket } from "../../lib/range";
  * carry recharts.
  */
 export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: Bucket }) {
-  const label = (t: number) => (bucket === "hour" ? formatLocalHour(t) : formatUTCDate(t));
+  // Where the local day turns over. Past a couple of them the hours have stopped being
+  // orientation and started being noise — a week of hourly columns labelled "6 PM, 11 AM,
+  // 4 AM" says nothing about where a day begins — so the day starts become the labels, and
+  // get a hairline each.
+  //
+  // Below that, at 24 hours, the hour labels are the orientation and midnight is one of
+  // them, so this leaves that chart alone rather than drawing a line it does not need.
+  const days = bucket === "hour" ? dayBoundaries(points) : [];
+  const byDay = days.length >= 2;
+  const label = byDay ? formatLocalDay : bucket === "hour" ? formatLocalHour : formatUTCDate;
 
   // Explicit ticks rather than Recharts' own: see byteTicks for why arithmetically tidy
   // values produce an axis with the same label twice.
@@ -42,9 +52,13 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
           <CartesianGrid stroke="var(--color-line)" vertical={false} />
           <XAxis
             dataKey="t"
+            // A spread, because exactOptionalPropertyTypes rejects an explicit undefined.
+            {...(byDay ? { ticks: days } : {})}
             tickFormatter={label}
             stroke="var(--color-line)"
             tick={{ fill: "var(--color-muted)", fontSize: 11 }}
+            // Kept even with explicit ticks, so a narrow window drops labels rather than
+            // overlapping them.
             minTickGap={28}
           />
           {/* One axis, never two. */}
@@ -68,6 +82,10 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
             labelFormatter={(t) => tooltipLabel(Number(t), bucket)}
             formatter={(value, name) => [formatBytes(Number(value)), name === "down" ? "Down" : "Up"]}
           />
+          {/* Before the bars, so the columns sit on top of the line rather than behind it. */}
+          {byDay
+            ? days.map((t) => <ReferenceLine key={t} x={t} stroke="var(--color-line)" />)
+            : null}
           <Bar dataKey="down" stackId="t" fill="var(--color-series-down)" name="down">
             {points.map((p) => (
               <Cell key={p.t} opacity={p.partial ? 0.45 : 1} />

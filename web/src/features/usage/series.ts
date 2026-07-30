@@ -56,6 +56,36 @@ export function zeroFill(series: UsagePoint[], r: SnappedRange): FilledPoint[] {
 }
 
 /**
+ * The buckets where the local calendar day turns over.
+ *
+ * The 7-day chart is 168 hourly buckets, and a chart library left to space the labels
+ * itself puts them at whatever interval fits — "6 PM, 11 AM, 4 AM" — which says nothing
+ * about where a day begins. These are the ticks that do.
+ *
+ * Returns bucket values rather than computed midnights, because a bucket is a UTC hour
+ * start and local midnight is not one in a half-hour-offset timezone. A computed midnight
+ * would then match no category on the axis and be silently dropped; the first bucket of a
+ * local day always exists.
+ *
+ * Never the first point, whose day started before the range did.
+ */
+export function dayBoundaries(points: FilledPoint[]): number[] {
+  const out: number[] = [];
+  let prev = "";
+  for (const p of points) {
+    const day = localDay(p.t);
+    if (prev !== "" && day !== prev) out.push(p.t);
+    prev = day;
+  }
+  return out;
+}
+
+function localDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
  * Y-axis ticks at powers of two.
  *
  * Left to itself a chart library picks arithmetically tidy values — 811 MB, 1.6 GB,

@@ -94,6 +94,12 @@ export function formatLocalHour(ms: number): string {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric" });
 }
 
+/** A local day, for the day boundaries on an hourly chart. The weekday earns its width on a
+ *  week-long range, where "was that the weekend" is the question being asked. */
+export function formatLocalDay(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { weekday: "short", day: "numeric" });
+}
+
 /**
  * What to call a node.
  *
