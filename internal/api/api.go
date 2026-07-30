@@ -82,6 +82,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/access/{token}", s.accessHandler)
 
 	// Authenticated.
+	mux.Handle("POST /api/account/password", s.requireSession(s.changePassword))
+	mux.Handle("POST /api/account/username", s.requireSession(s.changeUsername))
+
 	mux.Handle("GET /api/servers", s.requireSession(s.listServers))
 	mux.Handle("/api/proxy", s.requireSession(s.proxyHandler))
 

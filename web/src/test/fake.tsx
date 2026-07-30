@@ -154,6 +154,9 @@ export interface FakeOptions {
   infos?: Record<string, Partial<ServerInfo>>;
 }
 
+/** The current password the fake backend accepts when re-authenticating. */
+export const FAKE_PASSWORD = "hunter2hunter2";
+
 export interface Fake {
   transport: Transport;
   /** Every request, as "PANEL GET /api/servers" or "NODE aaa111 GET /api/users". */
@@ -170,13 +173,34 @@ export function makeFake(opts: FakeOptions = {}): Fake {
   const calls: string[] = [];
   const bodies: unknown[] = [];
 
+  // Account state, so a rename is visible from /api/me afterwards the way it is in the
+  // real backend.
+  let username = "alice";
+
+  /** 403 for a wrong current password, matching the backend's distinction from 401. */
+  const reauth = (body: unknown) =>
+    (body as { current_password?: string }).current_password === FAKE_PASSWORD
+      ? null
+      : json({ error: "that is not your current password" }, 403);
+
   const transport: Transport = {
     panel(method: Method, path: string, o: RequestOptions = {}) {
       calls.push(`PANEL ${method} ${path}`);
       if (o.body !== undefined) bodies.push(o.body);
 
       if (path === "/api/me") {
-        return Promise.resolve(json({ username: "alice", expires_at: "2026-08-06T00:00:00Z" }));
+        return Promise.resolve(json({ username, expires_at: "2026-08-06T00:00:00Z" }));
+      }
+      if (path === "/api/account/username") {
+        const bad = reauth(o.body);
+        if (bad) return Promise.resolve(bad);
+        username = String((o.body as { username: string }).username);
+        return Promise.resolve(json({ username }));
+      }
+      if (path === "/api/account/password") {
+        const bad = reauth(o.body);
+        if (bad) return Promise.resolve(bad);
+        return Promise.resolve(new Response(null, { status: 204 }));
       }
       if (path === "/api/servers") return Promise.resolve(json({ servers }));
       if (path === "/api/subscribers") {

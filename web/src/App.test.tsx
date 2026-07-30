@@ -218,3 +218,28 @@ describe("the phone menu", () => {
     expect(screen.getByRole("button", { name: "Open the menu" })).toBeTruthy();
   });
 });
+
+// Clicking your own name is the only way to the account page — there is no nav tab for it —
+// so the link is the feature, not decoration.
+describe("the account link", () => {
+  it("takes the username in the header to /account", async () => {
+    const user = userEvent.setup();
+    const fake = makeFake({ servers: [], users: {}, subscribers: [] });
+    render(
+      <ApiProvider dispatcher={new ApiDispatcher(fake.transport)}>
+        <QueryClientProvider client={makeQueryClient()}>
+          <ReloadWatchProvider value={new ReloadWatch()}>
+            <MemoryRouter>
+              <App />
+            </MemoryRouter>
+          </ReloadWatchProvider>
+        </QueryClientProvider>
+      </ApiProvider>,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "Your account, alice" }));
+
+    expect(await screen.findByRole("heading", { name: "Account" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Change password" })).toBeTruthy();
+  });
+});

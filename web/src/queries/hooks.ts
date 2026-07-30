@@ -18,6 +18,7 @@ import {
 } from "../api/actions/subscribers";
 import type { Subscriber } from "../api/types";
 import { getMe, postLogin, postLogout } from "../api/actions/auth";
+import { postAccountPassword, postAccountUsername } from "../api/actions/account";
 import { getServers } from "../api/actions/servers";
 import { getServer } from "../api/actions/server";
 import { getStatus } from "../api/actions/status";
@@ -338,6 +339,34 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => callApi(postLogout()),
     onSuccess: () => qc.clear(),
+  });
+}
+
+// ---- panel-owned: this administrator's own credentials ----
+
+/**
+ * Deliberately not `qc.clear()`, unlike useLogin and useLogout.
+ *
+ * The server signs every *other* device out and hands this request a replacement cookie,
+ * so the session survives and the identity has not changed. Clearing would tear the whole
+ * shell down and re-fetch it to arrive back where it started.
+ */
+export function useChangePassword() {
+  const callApi = useApiCall();
+  return useMutation({
+    mutationFn: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+      callApi(postAccountPassword(currentPassword, newPassword)),
+  });
+}
+
+/** Invalidates the session query so the header picks the new name up. */
+export function useChangeUsername() {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ currentPassword, username }: { currentPassword: string; username: string }) =>
+      callApi(postAccountUsername(currentPassword, username)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.session }),
   });
 }
 

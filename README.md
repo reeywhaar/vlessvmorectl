@@ -40,6 +40,7 @@ Real captures of the panel; only the data is invented. Regenerate them with
 - [Install](#install) — mint a token, `docker compose up`, create the first administrator
 - [Configuration](#configuration) — one environment variable that matters
 - [The CLI](#the-cli) — panel logins; VPN users live on the nodes
+- [Your own account](#your-own-account) — changing your username and password from the panel
 - [Subscribers, and the page you hand them](#subscribers-and-the-page-you-hand-them) — one link per person, and what that link is worth
 - [Backups](#backups) — copying one directory, and the sidecar that does it hourly
 - [Things worth knowing](#things-worth-knowing) — silent reload failures, quota counters, capability URLs
@@ -219,6 +220,27 @@ CLI — one writer each, which is what lets two processes share a data directory
 lock or a socket protocol, and the CLI's handle on `subscribers.json` is read-only in code
 rather than by convention. `admins.json` is the one file both write, so the panel refuses to
 write over a version that changed underneath it and tells you to try again.
+
+## Your own account
+
+Click your own name in the header. There is no nav tab for it — the header already wraps on
+a phone — and the page changes two things:
+
+**Your username.** Nobody is signed out, not even you on your other devices. An
+administrator has a permanent id that sessions refer to, so the username is only a label.
+
+**Your password.** Every *other* device is signed out; the tab you used stays signed in,
+because punishing the person who just typed both passwords correctly would be the wrong
+trade. Minimum eight characters, maximum 72 — bcrypt ignores anything past that, so a longer
+one would let a truncated version log in too.
+
+Both ask for your current password. That is not ceremony: a session borrowed from an
+unlocked laptop should not be enough to take the account over, and a username is half of
+what you type at the login prompt. Wrong guesses are rate limited in the same bucket as the
+login endpoint.
+
+There is still no way to *create* the first administrator from the web, and no way to touch
+somebody else's account from it. Both remain `vlessvmorectl users …` on a shell.
 
 ## Subscribers, and the page you hand them
 

@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router";
 import { Boundary } from "./components/Boundary";
 import { ErrorState } from "./components/ErrorState";
 import { Button, CloseIcon, MenuIcon, MoonIcon, Skeleton, SunIcon, cx } from "./components/ui";
+import { AccountPage } from "./routes/AccountPage";
 import { LoginPage } from "./routes/LoginPage";
 import { OverviewPage } from "./routes/OverviewPage";
 import { ServerPage } from "./routes/ServerPage";
@@ -72,6 +73,7 @@ function Authenticated({ onSignedOut }: { onSignedOut: () => void }) {
         <Route path="/" element={<OverviewPage />} />
         <Route path="/servers/:serverId" element={<ServerPage />} />
         <Route path="/subscribers" element={<SubscribersPage />} />
+        <Route path="/account" element={<AccountPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>
@@ -98,6 +100,7 @@ function Shell({
   // either workaround and does not mislead a reader into thinking one route is involved.
   const onServers = pathname === "/" || pathname.startsWith("/servers");
   const onSubscribers = pathname.startsWith("/subscribers");
+  const onAccount = pathname.startsWith("/account");
 
   // Arriving somewhere new folds the menu away. Tapping the tab you are already on leaves
   // the path alone, so the links close it themselves as well.
@@ -177,8 +180,21 @@ function Shell({
             <div className="flex items-center gap-2 border-t border-line pt-3 sm:ml-auto sm:border-t-0 sm:pt-0">
               {/* Hidden in the bar at phone width for want of room, but there is room for
                   it here — and inside a menu that signs you out, whose account this is
-                  matters. */}
-              <span className="min-w-0 truncate text-sm text-muted">{username}</span>
+                  matters.
+
+                  Your own name is also the way to your own account, rather than a third
+                  nav tab: this row already wraps to its own line at phone width. */}
+              <Link
+                to="/account"
+                onClick={() => setMenuOpen(false)}
+                aria-label={`Your account, ${username}`}
+                className={cx(
+                  "min-w-0 truncate rounded-lg px-2 py-1 text-sm",
+                  onAccount ? "bg-line text-ink" : "text-muted hover:text-ink",
+                )}
+              >
+                {username}
+              </Link>
               <div className="ml-auto flex items-center gap-2 sm:ml-0">
                 <Button
                   variant="ghost"
