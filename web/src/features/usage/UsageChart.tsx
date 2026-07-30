@@ -11,7 +11,7 @@ import {
   type BarShapeProps,
 } from "recharts";
 import { formatBytes, formatLocalDay, formatLocalHour, formatUTCDate } from "../../lib/format";
-import { byteTicks, dayBoundaries, type FilledPoint } from "./series";
+import { byteTickLabel, byteTicks, dayBoundaries, type FilledPoint } from "./series";
 import type { Bucket } from "../../lib/range";
 
 /**
@@ -66,7 +66,7 @@ export function UsageChart({ points, bucket }: { points: FilledPoint[]; bucket: 
           <YAxis
             ticks={ticks}
             domain={[0, top]}
-            tickFormatter={(v: number) => formatBytes(v, 0)}
+            tickFormatter={byteTickLabel}
             stroke="var(--color-line)"
             tick={{ fill: "var(--color-muted)", fontSize: 11 }}
             width={56}

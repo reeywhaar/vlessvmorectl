@@ -1,5 +1,6 @@
 import type { UsagePoint } from "../../api/types";
 import type { SnappedRange } from "../../lib/range";
+import { formatBytes, parseBytes } from "../../lib/format";
 
 export interface FilledPoint {
   /** Bucket start, epoch milliseconds. */
@@ -85,23 +86,51 @@ function localDay(ms: number): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+/** How the y-axis prints a tick. Shared with byteTicks, which chooses the ticks by what they
+ *  print, so the two cannot drift apart. */
+export function byteTickLabel(v: number): string {
+  return formatBytes(v, 0);
+}
+
 /**
- * Y-axis ticks at powers of two.
+ * Y-axis ticks whose labels are exact.
  *
- * Left to itself a chart library picks arithmetically tidy values — 811 MB, 1.6 GB,
- * 2.4 GB — and formatBytes rounds those to "811 MB", "2 GB", "2 GB": an axis with the
- * same label twice, which reads as a rendering fault. A power-of-two step is exact in
- * binary units, so every tick formats to a distinct, round string.
+ * Left to itself a chart library picks arithmetically tidy values — 811 MB, 1.6 GB, 2.4 GB —
+ * and rounding those to whole units gives "811 MB", "2 GB", "2 GB": an axis with the same
+ * label twice, which reads as a rendering fault.
+ *
+ * A power-of-two step is the start of the answer but not all of it, because a *multiple* of
+ * one need not be whole in the unit it prints in: with a peak of 1.9 GB the step is 512 MB
+ * and the fourth tick is 1.5 GB, which has no whole-number spelling and comes out as a
+ * second "2 GB". So the step doubles until every tick's label parses back to the tick — the
+ * one test that catches both a repeated label and a truthful-looking label that is 33% off.
+ *
+ * `count` is the number of divisions aimed for, not promised: dropping to three honest ticks
+ * beats five with a lie among them.
  */
 export function byteTicks(max: number, count = 4): number[] {
   if (!Number.isFinite(max) || max <= 0) return [0, 1024];
 
-  const step = 2 ** Math.ceil(Math.log2(max / count));
-  const ticks: number[] = [];
-  for (let v = 0; v <= max + step / 2; v += step) ticks.push(v);
-  // Always close the axis above the tallest column rather than clipping it.
-  if (ticks[ticks.length - 1]! < max) ticks.push(ticks.length * step);
+  let step = 2 ** Math.ceil(Math.log2(max / count));
+  let ticks = ticksUpTo(max, step);
+  // Terminates at two ticks: zero, and a power of two, whose label is always exact.
+  while (ticks.length > 2 && !labelsExact(ticks)) {
+    step *= 2;
+    ticks = ticksUpTo(max, step);
+  }
   return ticks;
+}
+
+/** Multiples of step, closing the axis above the tallest column rather than clipping it. */
+function ticksUpTo(max: number, step: number): number[] {
+  const ticks: number[] = [];
+  for (let v = 0; v < max; v += step) ticks.push(v);
+  ticks.push(ticks.length * step);
+  return ticks;
+}
+
+function labelsExact(ticks: number[]): boolean {
+  return ticks.every((v) => parseBytes(byteTickLabel(v)) === v);
 }
 
 /** Peak total across the filled series, for a direct label on the tallest column. */

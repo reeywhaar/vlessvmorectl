@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { byteTicks, dayBoundaries, zeroFill, type FilledPoint } from "./series";
+import { byteTickLabel, byteTicks, dayBoundaries, zeroFill, type FilledPoint } from "./series";
 import { HOUR_MS, snapRange, type SnappedRange } from "../../lib/range";
-import { formatBytes } from "../../lib/format";
+import { parseBytes } from "../../lib/format";
 
 const H = HOUR_MS;
 
@@ -137,14 +137,41 @@ describe("dayBoundaries", () => {
 
 describe("byteTicks", () => {
   /**
-   * The defect this exists for: left to itself a chart library picks arithmetically tidy
-   * values — 811 MB, 1.6 GB, 2.4 GB — and formatBytes rounds the last two to the same
-   * string, so the axis reads "2 GB" twice and looks broken.
+   * A spread of peaks, including the band that used to break: anything between 1 and 2 GB
+   * gets a 512 MB step, whose third multiple is 1.5 GB — no whole-number spelling, so the
+   * axis printed "0 B, 512 MB, 1 GB, 2 GB, 2 GB" and read as a rendering fault.
    */
+  const peaks = [
+    1,
+    900,
+    5_000,
+    3_100_000,
+    700e6,
+    900 * 1024 ** 2,
+    1.5 * 1024 ** 3,
+    1.9 * 1024 ** 3,
+    2.06e9,
+    2.9 * 1024 ** 3,
+    1.4 * 1024 ** 4,
+  ];
+
   it("never produces two ticks with the same label", () => {
-    for (const max of [900, 5_000, 3_100_000, 900 * 1024 ** 2, 2.9 * 1024 ** 3, 1.4 * 1024 ** 4]) {
-      const labels = byteTicks(max).map((v) => formatBytes(v, 0));
+    for (const max of peaks) {
+      const labels = byteTicks(max).map(byteTickLabel);
       expect(new Set(labels).size, `duplicate label in ${labels.join(", ")}`).toBe(labels.length);
+    }
+  });
+
+  /**
+   * The stronger property, and the one distinctness was standing in for: a label must be the
+   * value it sits next to. "0 B, 512 MB, 1 GB, 1.5 GB→2 GB" has no duplicates once the top
+   * tick is 1.5 GB itself, and is still an axis whose top says 2 GB about 1.5.
+   */
+  it("labels every tick exactly", () => {
+    for (const max of peaks) {
+      for (const tick of byteTicks(max)) {
+        expect(parseBytes(byteTickLabel(tick)), `${byteTickLabel(tick)} is not ${tick}`).toBe(tick);
+      }
     }
   });
 
