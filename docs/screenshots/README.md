@@ -35,7 +35,7 @@ Two knobs:
 
 ```sh
 WIDTH=900 docs/screenshots/capture.sh     # default 720
-THEME=light docs/screenshots/capture.sh   # default dark
+THEME=dark docs/screenshots/capture.sh    # default light
 ```
 
 720 CSS pixels at `deviceScaleFactor: 2` gives 1440-pixel-wide files that stay crisp on a
@@ -66,8 +66,9 @@ rather than an encoder.
 
 **`shoot.mjs`** — the Chromium driver. Notable bits, all of which were bugs first:
 
-- It emulates `prefers-color-scheme: dark`. Headless Chromium reports light, and the panel
-  honours the system preference, so without this every capture came out in the light theme.
+- It emulates `prefers-color-scheme`, rather than leaving it to whatever headless Chromium
+  reports, because the panel honours the system preference. `THEME` is therefore the one knob
+  that decides what the whole set looks like.
 - Nothing waits on a QR code any more. Both the drawer and the share page put their codes
   behind a button — a QR is the one credential a bystander can photograph off a shared
   screen — so a wait for one is a guaranteed 15-second timeout. The credential rows are the

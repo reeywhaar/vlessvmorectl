@@ -21,7 +21,9 @@ work="$(mktemp -d)"
 # its tabs into a burger menu, and a set of screenshots where every one hides the
 # navigation shows the panel as something it is not.
 WIDTH="${WIDTH:-720}"
-THEME="${THEME:-dark}"
+# The theme the committed PNGs are in, so a plain run reproduces them rather than replacing
+# the whole set with the other theme.
+THEME="${THEME:-light}"
 
 # The panel's listen port is not configurable — it is :80 inside a container and the
 # operator remaps it. Here that means this script needs to be able to bind :80: fine on
