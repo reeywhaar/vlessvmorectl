@@ -67,6 +67,24 @@ describe("ServerPage", () => {
     await screen.findByText("alice-phone");
     expect(openDialogs()).toHaveLength(0);
   });
+
+  // Reopening is the half that matters: anything done at mount passes the first and fails this.
+  it("focuses the name field each time the add-user dialog opens", async () => {
+    const u = userEvent.setup();
+    renderPage();
+    await screen.findByText("alice-phone");
+
+    for (const attempt of ["first open", "reopened"]) {
+      await u.click(screen.getByRole("button", { name: "Add user" }));
+      await waitFor(() => expect(openDialogs().length).toBeGreaterThan(0));
+
+      const name = topDialog().getByLabelText(/^Name/);
+      expect(document.activeElement, attempt).toBe(name);
+
+      await u.click(topDialog().getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(openDialogs()).toHaveLength(0));
+    }
+  });
 });
 
 describe("UserDrawer credentials", () => {

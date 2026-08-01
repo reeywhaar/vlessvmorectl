@@ -53,7 +53,7 @@ export function CreateUserDialog({
     <Dialog open={open} onClose={onClose} title="Add user">
       <form onSubmit={submit} className="space-y-4">
         <Field label="Name" hint="Shown in the client, and usable in place of the id in URLs.">
-          <Input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+          <Input value={name} onChange={(e) => setName(e.target.value)} required data-autofocus />
         </Field>
 
         <Field label="Quota" hint="e.g. 100GB. Leave empty for unlimited.">
