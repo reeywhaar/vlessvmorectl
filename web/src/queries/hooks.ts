@@ -158,6 +158,35 @@ export function useUsersByServer(servers: Server[]): NodeUsers[] {
   });
 }
 
+/**
+ * Each node's display name, best-effort, keyed by server id.
+ *
+ * Tolerant like useUsersByServer above, and for the same reason: the caller wants a caption, and
+ * a node that is down must not cost it the ones that answered. The suspense-and-throw hook is
+ * wrong wherever the name is a nicety rather than the content — a boundary per row inside a
+ * dialog is both more machinery and, at least once, a render loop.
+ */
+export function useServerNames(servers: Server[]): Record<string, string> {
+  const callApi = useApiCall();
+  const results = useQueries({
+    queries: servers.map((s) => ({
+      queryKey: qk.serverInfo(s.id),
+      queryFn: ({ signal }: { signal: AbortSignal }) => callApi(getServer(s), signal),
+      staleTime: Infinity,
+      gcTime: Infinity,
+      refetchOnWindowFocus: false,
+      throwOnError: false,
+    })),
+  });
+
+  const names: Record<string, string> = {};
+  servers.forEach((server, i) => {
+    const name = results[i]?.data?.name;
+    if (name) names[server.id] = name;
+  });
+  return names;
+}
+
 /** Holds sub_token, so it leaves memory shortly after the drawer closes. */
 export function useUserLink(server: Server, userId: string) {
   const callApi = useApiCall();
@@ -242,6 +271,46 @@ export function useCreateUser(server: Server) {
   // to render until it answers.
   return useReloadAware<UserCreate, VlessUser>(server, {
     run: (callApi, input) => callApi(postUsers(server, input)),
+  });
+}
+
+/** One node's outcome from the fan-out below. */
+export interface CreatedOnNode {
+  server: Server;
+  /** null when the node created the user. */
+  error: unknown;
+}
+
+/**
+ * Creates the same user on several nodes.
+ *
+ * Not useCreateUser in a loop, which would be a hook per node and break the moment the list
+ * changed length. Failures are collected rather than thrown, so one unreachable node neither
+ * hides the others' success nor loses the caller the chance to retry just that one.
+ */
+export function useCreateUserOnServers(servers: Server[]) {
+  const callApi = useApiCall();
+  const qc = useQueryClient();
+  const watch = useReloadWatch();
+
+  return useMutation({
+    mutationFn: ({ ids, input }: { ids: string[]; input: UserCreate }) =>
+      Promise.all(
+        servers
+          .filter((s) => ids.includes(s.id))
+          .map(async (server): Promise<CreatedOnNode> => {
+            try {
+              const env = await callApi(postUsers(server, input));
+              if (env.reloaded) watch.clear(server.id);
+              else watch.mark(server.id, env.reload_error ?? "the node did not say why");
+              return { server, error: null };
+            } catch (error) {
+              return { server, error };
+            } finally {
+              void qc.invalidateQueries({ queryKey: qk.server(server.id) });
+            }
+          }),
+      ),
   });
 }
 

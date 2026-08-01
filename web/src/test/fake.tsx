@@ -317,7 +317,17 @@ export function makeFake(opts: FakeOptions = {}): Fake {
       if (path === "/api/server")
         return Promise.resolve(json({ ...serverInfo(`[NL] ${host}`, host), ...opts.infos?.[server.id] }));
       if (path === "/api/status") return Promise.resolve(json(serverStatus(users)));
-      if (path === "/api/users") return Promise.resolve(json({ users }));
+      if (path === "/api/users") {
+        if (method !== "POST") return Promise.resolve(json({ users }));
+        const { name } = o.body as { name: string };
+        // The node's own uniqueness rule, which is what makes a name collide.
+        if (users.some((u) => u.name === name)) {
+          return Promise.resolve(json({ error: `user ${name} already exists` }, 409));
+        }
+        const created = makeUser({ id: `u_${name}`, name });
+        usersByServer[server.id] = [...users, created];
+        return Promise.resolve(json({ result: created, reloaded: true }, 201));
+      }
 
       const m = /^\/api\/users\/([^/]+)(\/link|\/usage)?$/.exec(path);
       if (m) {

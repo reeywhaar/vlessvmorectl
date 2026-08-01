@@ -1,14 +1,17 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { Boundary } from "../components/Boundary";
 import { ErrorState } from "../components/ErrorState";
 import { ServerTitle } from "../components/ServerTitle";
-import { Badge, Card, EmptyState, PageHeader, Skeleton, StatTile } from "../components/ui";
+import { CreateUserDialog } from "../features/users/CreateUserDialog";
+import { Badge, Button, Card, EmptyState, PageHeader, Skeleton, StatTile } from "../components/ui";
 import { useServerInfo, useServerStatus, useServers, useUsers } from "../queries/hooks";
 import { formatBytes, hasV2RayAPI, userState } from "../lib/format";
 import type { Server } from "../api/types";
 
 export function OverviewPage() {
   const { data: servers } = useServers();
+  const [creating, setCreating] = useState(false);
 
   if (servers.length === 0) {
     return (
@@ -33,7 +36,20 @@ export function OverviewPage() {
 
   return (
     <>
-      <PageHeader title="Servers" subtitle={`${servers.length} node${servers.length === 1 ? "" : "s"}`} />
+      <PageHeader
+        title="Servers"
+        subtitle={`${servers.length} node${servers.length === 1 ? "" : "s"}`}
+        actions={
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            Add user
+          </Button>
+        }
+      />
+
+      {/* Outside the per-card boundaries: a node that is down must not take the dialog with
+          it, since the point of this one is adding to the nodes that are up. */}
+      <CreateUserDialog servers={servers} open={creating} onClose={() => setCreating(false)} />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {servers.map((server) => (
           // One boundary per card, not one for the page. A node that is down, or whose

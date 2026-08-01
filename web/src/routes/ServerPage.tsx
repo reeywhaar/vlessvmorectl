@@ -178,7 +178,8 @@ function ServerDetail({ server }: { server: Server }) {
         <UserTable users={shown} onSelect={setSelected} />
       )}
 
-      <CreateUserDialog server={server} open={creating} onClose={() => setCreating(false)} />
+      {/* This node only. The picker exists for the servers page, where there is a choice. */}
+      <CreateUserDialog servers={[server]} open={creating} onClose={() => setCreating(false)} />
 
       {selected ? (
         <UserDrawer
