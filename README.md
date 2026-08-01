@@ -636,7 +636,7 @@ under 30 MB. Three things get it there:
   ~450 KB off the binary and also means the compressed bytes are served straight from
   memory rather than being recompressed per request. `internal/api/spa.go` registers a
   `foo.js.gz` under `/foo.js`, so nothing downstream knows.
-- A scratch-ish `alpine` runtime with only `ca-certificates` and `tzdata`.
+- A scratch-ish `alpine` runtime with only `ca-certificates`.
 
 Passkey support accounts for 1.3 MB of that, which is what `github.com/go-webauthn/webauthn`
 and its dependency graph cost. The alternative was hand-writing WebAuthn verification against

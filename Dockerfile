@@ -56,11 +56,11 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
 # ---------------------------------------------------------------------------
 # Runtime.
 #
-# The only stage that runs on the target architecture, and it installs two packages — so a
+# The only stage that runs on the target architecture, and it installs one package — so a
 # multi-platform build emulates one short apk step rather than a compile.
 # ---------------------------------------------------------------------------
 FROM alpine:latest
-RUN apk add --no-cache ca-certificates tzdata
+RUN apk add --no-cache ca-certificates
 
 COPY --from=build /out/vlessvmorectl /usr/local/bin/vlessvmorectl
 

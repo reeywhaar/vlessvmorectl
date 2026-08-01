@@ -134,6 +134,9 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 
 	log.Info("vlessvmorectl started",
 		"version", versionString(),
+		// So nobody has to work out which zone the lines below are in, or discover the answer
+		// while correlating them against a node's.
+		"clock", "UTC",
 		"addr", config.ListenAddr,
 		"data_dir", st.Dir(),
 		"admins", st.Admins.Count(),
