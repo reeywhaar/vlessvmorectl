@@ -582,8 +582,10 @@ export function Dialog({
         side
           ? "ml-auto mr-0 h-dvh max-h-dvh w-full max-w-2xl rounded-none border-l border-line"
           : // Centred dialogs size to their content, up to a bound — the share page's
-            // connection details are taller than a small phone.
-            "m-auto max-h-[85dvh] w-full max-w-lg rounded-[14px] border border-line",
+            // connection details are taller than a small phone. Width leaves a gutter
+            // rather than being `w-full`: at exactly 100% the rounded corners and border
+            // sit off-screen on a phone and it reads as a page, not a dialog.
+            "m-auto max-h-[85dvh] w-[calc(100%-2rem)] max-w-lg rounded-[14px] border border-line",
       )}
     >
       {/* max-h-dvh rather than max-h-screen, for the reason above: on iOS `screen` is
@@ -591,9 +593,9 @@ export function Dialog({
       <div className={cx("flex flex-col", side ? "h-full max-h-dvh" : "max-h-[85dvh]")}>
         <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>
-          <Button variant="ghost" onClick={onClose} aria-label="Close">
-            ✕
-          </Button>
+          <IconButton label="Close" onClick={onClose}>
+            <CloseIcon />
+          </IconButton>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
       </div>
