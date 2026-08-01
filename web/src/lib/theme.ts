@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 export type Theme = "dark" | "light";
 
@@ -49,4 +49,26 @@ export function useTheme() {
   }, []);
 
   return { theme, toggle };
+}
+
+/**
+ * The theme in force, for a component that needs to read it rather than own it.
+ *
+ * Deliberately not a second useTheme. That hook holds the state, and a page has exactly one of
+ * them beside its toggle; calling it again deeper down would mint an independent copy that never
+ * hears the toggle and sits on a stale value. This reads the attribute applyTheme sets, which is
+ * the one place both the hook and the pre-mount inline script agree on.
+ */
+export function useAppliedTheme(): Theme {
+  return useSyncExternalStore(subscribe, applied, () => "dark");
+}
+
+function subscribe(onChange: () => void): () => void {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributeFilter: ["data-theme"] });
+  return () => observer.disconnect();
+}
+
+function applied(): Theme {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }

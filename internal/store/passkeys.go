@@ -363,6 +363,9 @@ func (p *Passkeys) Rename(adminID, id, label string, now time.Time) (*PasskeyCre
 	if !p.writable {
 		return nil, ErrPasskeysReadOnly
 	}
+	// Empty is allowed, and means "no name of its own" — the panel goes back to calling this
+	// after the authenticator it lives in. Clearing the field is how somebody undoes a rename,
+	// so refusing it would leave them typing the provider's name back in by hand.
 	if err := validatePasskeyLabel(label); err != nil {
 		return nil, err
 	}
@@ -568,11 +571,15 @@ func (p *Passkeys) freshCredentialIDLocked() (string, error) {
 	return "", errors.New("could not generate an unused passkey id")
 }
 
+// validatePasskeyLabel checks the shape of a name, and not whether there is one.
+//
+// Empty is a state rather than an error, at enrolment and at rename alike: a credential nobody
+// has named has no name of its own, and the panel shows the authenticator's until somebody gives
+// it one. Storing the enrolling authenticator's name instead would freeze it — a provider the
+// upstream list later renames, or one we learn the name of after the fact, would be stuck with
+// whatever we knew that day.
 func validatePasskeyLabel(label string) error {
 	label = strings.TrimSpace(label)
-	if label == "" {
-		return fmt.Errorf("%w: a passkey needs a name", ErrInvalid)
-	}
 	if len(label) > MaxPasskeyLabelLen {
 		return fmt.Errorf("%w: the name is longer than %d characters", ErrInvalid, MaxPasskeyLabelLen)
 	}

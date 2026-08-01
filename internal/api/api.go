@@ -142,6 +142,15 @@ func (s *Server) Handler() http.Handler {
 		writeError(w, http.StatusNotFound, "no such endpoint: "+r.URL.Path)
 	})
 
+	// A passkey provider's logo. Deliberately not under /api: it is a static asset the
+	// account page points an <img> at, and it is registered whether or not passkeys are
+	// configured, so turning the feature off cannot leave an enrolled credential's logo
+	// 404ing on a panel that still lists it.
+	//
+	// Under /assets/ alongside Vite's output, and for the same reason: these filenames carry a
+	// hash of their contents, which is what earns the immutable header the handler sets.
+	mux.HandleFunc("GET /assets/icons/webauthn/{file}", s.aaguidLogo)
+
 	// Everything else is the SPA.
 	mux.Handle("/", s.spa)
 

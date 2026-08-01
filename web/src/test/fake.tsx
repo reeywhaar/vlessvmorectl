@@ -163,6 +163,12 @@ export function makePasskey(over: Partial<Passkey> = {}): Passkey {
     id: "k7m2xa9v",
     label: "iPhone",
     algorithm: "ES256",
+    // Apple Passwords, which is what an iPhone enrolling a passkey reports. All of these are
+    // optional on the wire, so a test for an authenticator that identified itself poorly, or not
+    // at all, overrides them. No logo_dark, like most providers.
+    provider: "Apple Passwords",
+    aaguid: "fbfc3007-154e-4ecc-8c0b-6e020557d7bd",
+    logo: "/assets/icons/webauthn/apple_passwords_light.9d2487ab5b1d.svg",
     synced: true,
     created_at: "2026-07-01T09:12:33Z",
     ...over,
@@ -222,8 +228,9 @@ export function makeFake(opts: FakeOptions = {}): Fake {
       });
     }
     if (path === "/api/passkeys/register/finish") {
-      const label = String((o.body as { label: string }).label);
-      const created = makePasskey({ id: `pk${passkeys.length + 1}`, label });
+      // No label, like the real one: enrolment stores no name, and the panel calls a credential
+      // after its provider until somebody renames it.
+      const created = makePasskey({ id: `pk${passkeys.length + 1}`, label: "" });
       passkeys = [...passkeys, created];
       return json({ passkey: created }, 201);
     }

@@ -66,12 +66,13 @@ func (h *harness) beginLogin() (state, challenge string) {
 }
 
 // enrol runs a whole successful registration and returns the created passkey's id.
-func (h *harness) enrol(cookie *http.Cookie, a *fakeAuthenticator, label string) string {
+//
+// No label: enrolment names nothing, and a test that wants a particular name renames afterwards.
+func (h *harness) enrol(cookie *http.Cookie, a *fakeAuthenticator) string {
 	h.t.Helper()
 	state, challenge := h.beginRegistration(cookie)
 	body := mustJSON(h.t, map[string]any{
 		"state":      state,
-		"label":      label,
 		"credential": json.RawMessage(a.register(h.t, "webauthn.create", challenge, testPasskeyOrigin, testPasskeyRPID)),
 	})
 	rec := h.do(http.MethodPost, "/api/passkeys/register/finish", cookie, body)
@@ -121,13 +122,63 @@ func (h *harness) signInWithPasskey(a *fakeAuthenticator, handle []byte) *httpte
 	return h.do(http.MethodPost, "/api/passkeys/login/finish", nil, body)
 }
 
+// Enrolment asks for no name and stores none, and the listing identifies the credential instead.
+//
+// The whole chain in one test, because each link is invisible on its own: the authenticator
+// asserts an id, the store keeps it base64url, the view renders it as a UUID, and that resolves
+// to a name and a logo URL. The fake authenticator's id is Chrome on Mac's real one, which is
+// what makes the last step assertable.
+func TestPasskeyEnrolmentNamesTheAuthenticatorRatherThanStoringALabel(t *testing.T) {
+	h := newPasskeyHarness(t)
+	cookie := h.login()
+
+	h.enrol(cookie, newFakeAuthenticator(t))
+
+	stored := h.store.Passkeys.List(h.adminID("alice"))
+	if len(stored) != 1 {
+		t.Fatalf("stored %d credentials, want 1", len(stored))
+	}
+	if stored[0].Label != "" {
+		t.Errorf("Label = %q, want it left empty for the panel to fill in", stored[0].Label)
+	}
+
+	rec := h.do(http.MethodGet, "/api/passkeys", cookie, "")
+	var body struct {
+		Passkeys []passkeyView `json:"passkeys"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Passkeys) != 1 {
+		t.Fatalf("listed %d passkeys, want 1", len(body.Passkeys))
+	}
+
+	got := body.Passkeys[0]
+	if got.Label != "" {
+		t.Errorf("label = %q, want it empty on the wire too — the panel computes what to show", got.Label)
+	}
+	if got.AAGUID != "adce0002-35bc-c60a-648b-0b25f1f05503" {
+		t.Errorf("aaguid = %q", got.AAGUID)
+	}
+	if got.Provider != "Chrome on Mac" {
+		t.Errorf("provider = %q, want %q", got.Provider, "Chrome on Mac")
+	}
+	if !strings.HasPrefix(got.Logo, logoURLPrefix) {
+		t.Errorf("logo = %q, want a URL under %s", got.Logo, logoURLPrefix)
+	}
+	// And that URL is one the panel can actually fetch.
+	if img := h.doWithHeaders(http.MethodGet, got.Logo, nil); img.Code != http.StatusOK {
+		t.Errorf("fetching %s: got %d, want 200", got.Logo, img.Code)
+	}
+}
+
 // The whole point: enrol, then sign in with no cookie and no username.
 func TestPasskeyRoundTrip(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
 
-	id := h.enrol(cookie, auth, "iPhone")
+	id := h.enrol(cookie, auth)
 	if id == "" {
 		t.Fatal("no passkey id was returned")
 	}
@@ -247,7 +298,6 @@ func TestPasskeyEnrolmentIsBoundToItsAdministrator(t *testing.T) {
 	auth := newFakeAuthenticator(t)
 	body := mustJSON(t, map[string]any{
 		"state":      state,
-		"label":      "stolen",
 		"credential": json.RawMessage(auth.register(t, "webauthn.create", challenge, testPasskeyOrigin, testPasskeyRPID)),
 	})
 
@@ -268,7 +318,6 @@ func TestPasskeyChallengeIsSingleUse(t *testing.T) {
 	state, challenge := h.beginRegistration(cookie)
 	body := mustJSON(t, map[string]any{
 		"state":      state,
-		"label":      "iPhone",
 		"credential": json.RawMessage(auth.register(t, "webauthn.create", challenge, testPasskeyOrigin, testPasskeyRPID)),
 	})
 	if rec := h.do(http.MethodPost, "/api/passkeys/register/finish", cookie, body); rec.Code != http.StatusCreated {
@@ -291,7 +340,6 @@ func TestPasskeyChallengeExpires(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{
 		"state":      state,
-		"label":      "iPhone",
 		"credential": json.RawMessage(auth.register(t, "webauthn.create", challenge, testPasskeyOrigin, testPasskeyRPID)),
 	})
 	if rec := h.do(http.MethodPost, "/api/passkeys/register/finish", cookie, body); rec.Code != http.StatusBadRequest {
@@ -323,7 +371,6 @@ func TestPasskeyRegistrationRejections(t *testing.T) {
 			state, challenge := h.beginRegistration(cookie)
 			body := mustJSON(t, map[string]any{
 				"state":      state,
-				"label":      "iPhone",
 				"credential": json.RawMessage(auth.register(t, tc.typ, challenge, tc.origin, tc.rpID)),
 			})
 			rec := h.do(http.MethodPost, "/api/passkeys/register/finish", cookie, body)
@@ -345,7 +392,6 @@ func TestPasskeyRegistrationRejectsABadChallenge(t *testing.T) {
 	state, _ := h.beginRegistration(cookie)
 	body := mustJSON(t, map[string]any{
 		"state":      state,
-		"label":      "iPhone",
 		"credential": json.RawMessage(auth.register(t, "webauthn.create", "bm90LXRoZS1jaGFsbGVuZ2U", testPasskeyOrigin, testPasskeyRPID)),
 	})
 	if rec := h.do(http.MethodPost, "/api/passkeys/register/finish", cookie, body); rec.Code != http.StatusBadRequest {
@@ -357,7 +403,7 @@ func TestPasskeyPerAdminCap(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	for range store.MaxPasskeysPerAdmin {
-		h.enrol(cookie, newFakeAuthenticator(t), "key")
+		h.enrol(cookie, newFakeAuthenticator(t))
 	}
 	if rec := h.do(http.MethodPost, "/api/passkeys/register/begin", cookie, ""); rec.Code != http.StatusConflict {
 		t.Errorf("past the cap: got %d, want 409 (%s)", rec.Code, rec.Body.String())
@@ -393,7 +439,7 @@ func TestPasskeyLoginRejections(t *testing.T) {
 			h := newPasskeyHarness(t)
 			cookie := h.login()
 			auth := newFakeAuthenticator(t)
-			h.enrol(cookie, auth, "iPhone")
+			h.enrol(cookie, auth)
 
 			handle := h.handleFor(h.adminID("alice"))
 			if tc.wrongHandle {
@@ -427,7 +473,7 @@ func TestPasskeyLoginChallengeIsSingleUse(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 	handle := h.handleFor(h.adminID("alice"))
 
 	state, challenge := h.beginLogin()
@@ -449,7 +495,7 @@ func TestPasskeyOfADeletedAdminIsRefusedAndWritesNothing(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 	handle := h.handleFor(h.adminID("alice"))
 
 	if err := h.store.Admins.Delete("alice"); err != nil {
@@ -479,7 +525,7 @@ func TestPasskeyDoesNotSurviveARecreatedUsername(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 	handle := h.handleFor(h.adminID("alice"))
 
 	if err := h.store.Admins.Delete("alice"); err != nil {
@@ -507,7 +553,7 @@ func TestPasskeyCloneWarningIsLoggedNotRefused(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 	handle := h.handleFor(h.adminID("alice"))
 
 	// Sign in at a high counter, then again at a lower one.
@@ -527,7 +573,7 @@ func TestPasskeySignCountPersists(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 	handle := h.handleFor(h.adminID("alice"))
 
 	if rec := h.signInWithPasskey(auth.withCounter(7), handle); rec.Code != http.StatusOK {
@@ -546,7 +592,7 @@ func TestPasswordChangeInvalidatesAPasskeySession(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 
 	rec := h.signInWithPasskey(auth, h.handleFor(h.adminID("alice")))
 	passkeySession := cookieFrom(rec)
@@ -576,7 +622,7 @@ func TestPasskeysAreScopedToTheirOwner(t *testing.T) {
 	alice := h.login()
 	bob := h.loginAs("bob")
 
-	id := h.enrol(alice, newFakeAuthenticator(t), "alice's iPhone")
+	id := h.enrol(alice, newFakeAuthenticator(t))
 
 	var list struct {
 		Passkeys []passkeyView `json:"passkeys"`
@@ -604,7 +650,7 @@ func TestPasskeyRenameAndDelete(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	id := h.enrol(cookie, auth, "iPhone")
+	id := h.enrol(cookie, auth)
 
 	rec := h.do(http.MethodPatch, "/api/passkeys/"+id, cookie, `{"label":"iPad"}`)
 	if rec.Code != http.StatusOK {
@@ -623,8 +669,21 @@ func TestPasskeyRenameAndDelete(t *testing.T) {
 		t.Errorf("algorithm = %q, want ES256", out.Passkey.Algorithm)
 	}
 
-	if rec := h.do(http.MethodPatch, "/api/passkeys/"+id, cookie, `{"label":""}`); rec.Code != http.StatusBadRequest {
-		t.Errorf("empty label: got %d, want 400", rec.Code)
+	// Clearing it is how a rename is undone, not a rejected edit: the credential goes back to
+	// having no name of its own, and the panel calls it after its authenticator again.
+	rec = h.do(http.MethodPatch, "/api/passkeys/"+id, cookie, `{"label":""}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clearing the label: got %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Passkey.Label != "" {
+		t.Errorf("label = %q after clearing, want empty", out.Passkey.Label)
+	}
+	// A name it could never have meant is still refused.
+	if bad := h.do(http.MethodPatch, "/api/passkeys/"+id, cookie, `{"label":"line\nbreak"}`); bad.Code != http.StatusBadRequest {
+		t.Errorf("a control character in the label: got %d, want 400", bad.Code)
 	}
 	if rec := h.do(http.MethodDelete, "/api/passkeys/"+id, cookie, ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete: got %d (%s)", rec.Code, rec.Body.String())
@@ -662,7 +721,7 @@ func TestPasskeyRepliesAndLogsCarryNoCredentialMaterial(t *testing.T) {
 	bodies := []string{
 		h.do(http.MethodPost, "/api/passkeys/register/begin", cookie, "").Body.String(),
 	}
-	id := h.enrol(cookie, auth, "iPhone")
+	id := h.enrol(cookie, auth)
 	bodies = append(bodies,
 		h.do(http.MethodGet, "/api/passkeys", cookie, "").Body.String(),
 		h.do(http.MethodPatch, "/api/passkeys/"+id, cookie, `{"label":"iPad"}`).Body.String(),
@@ -734,7 +793,7 @@ func TestPasskeyRegistrationExcludesExistingCredentials(t *testing.T) {
 	h := newPasskeyHarness(t)
 	cookie := h.login()
 	auth := newFakeAuthenticator(t)
-	h.enrol(cookie, auth, "iPhone")
+	h.enrol(cookie, auth)
 
 	rec := h.do(http.MethodPost, "/api/passkeys/register/begin", cookie, "")
 	var body struct {

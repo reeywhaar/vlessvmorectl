@@ -37,14 +37,14 @@ export function postPasskeysRegisterBegin() {
 }
 
 /** POST /api/passkeys/register/finish */
-export function postPasskeysRegisterFinish(state: string, label: string, credential: unknown) {
+export function postPasskeysRegisterFinish(state: string, credential: unknown) {
   return createApiDispatcherAction((d) =>
     d
       .call<{ passkey: Passkey }>({
         scope: "panel",
         method: "POST",
         path: "/api/passkeys/register/finish",
-        body: { state, label, credential },
+        body: { state, credential },
       })
       .then((r) => r.passkey),
   );

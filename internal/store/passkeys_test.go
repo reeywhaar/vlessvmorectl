@@ -200,13 +200,51 @@ func TestPasskeysRenameAndScope(t *testing.T) {
 func TestPasskeysLabelValidation(t *testing.T) {
 	p := newPasskeys(t)
 	now := time.Now()
-	for _, label := range []string{"", "   ", strings.Repeat("x", MaxPasskeyLabelLen+1), "bad\x00name", "line\nbreak"} {
+	for _, label := range []string{strings.Repeat("x", MaxPasskeyLabelLen+1), "bad\x00name", "line\nbreak"} {
 		if _, err := p.Add(adminA, mustHandle(t, p), aCredential(1, label), now); !errors.Is(err, ErrInvalid) {
 			t.Errorf("Add(label=%q): got %v, want ErrInvalid", label, err)
 		}
 	}
 	if _, err := p.Add(adminA, mustHandle(t, p), aCredential(1, strings.Repeat("x", MaxPasskeyLabelLen)), now); err != nil {
 		t.Errorf("a label at exactly the cap was refused: %v", err)
+	}
+}
+
+// Enrolment stores no name — the panel calls a credential after its provider until somebody
+// renames it — so "no name" is a state both Add and Rename have to accept. Rename accepting it is
+// what makes the rename undoable: clearing the field puts the credential back to unnamed rather
+// than making somebody type the provider's name in by hand.
+func TestPasskeysUnnamedCredential(t *testing.T) {
+	p := newPasskeys(t)
+	now := time.Now()
+
+	added, err := p.Add(adminA, mustHandle(t, p), aCredential(1, ""), now)
+	if err != nil {
+		t.Fatalf("Add with no label: %v", err)
+	}
+	if added.Label != "" {
+		t.Errorf("Label = %q, want it left empty", added.Label)
+	}
+
+	named, err := p.Rename(adminA, added.ID, "Work key", now)
+	if err != nil {
+		t.Fatalf("Rename to a real name: %v", err)
+	}
+	if named.Label != "Work key" {
+		t.Fatalf("Label = %q", named.Label)
+	}
+
+	for _, label := range []string{"", "   "} {
+		cleared, err := p.Rename(adminA, added.ID, label, now)
+		if err != nil {
+			t.Fatalf("Rename(%q): %v", label, err)
+		}
+		if cleared.Label != "" {
+			t.Errorf("Rename(%q) left Label = %q, want empty", label, cleared.Label)
+		}
+		if _, err := p.Rename(adminA, added.ID, "Work key", now); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -377,9 +415,11 @@ func TestPasskeysOpenRejectsBadFiles(t *testing.T) {
 		{"missing created_at", `{"version":1,"owners":[
 			{"admin_id":"a","handle":"` + good + `","credentials":[
 				{"id":"c1","credential_id":"` + b64(5, 32) + `","label":"x","public_key":"` + b64(7, 77) + `","algorithm":-7}]}]}`},
-		{"empty label", `{"version":1,"owners":[
+		// Not an empty label, which is legitimate: a credential nobody has renamed has none, and
+		// the panel calls it after its provider. The shape is still checked.
+		{"control character in label", `{"version":1,"owners":[
 			{"admin_id":"a","handle":"` + good + `","credentials":[
-				{"id":"c1","credential_id":"` + b64(5, 32) + `","label":"","public_key":"` + b64(7, 77) + `","algorithm":-7,"created_at":"2026-01-02T03:04:05Z"}]}]}`},
+				{"id":"c1","credential_id":"` + b64(5, 32) + `","label":"line\nbreak","public_key":"` + b64(7, 77) + `","algorithm":-7,"created_at":"2026-01-02T03:04:05Z"}]}]}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"vlessvmorectl/internal/aaguid"
 	"vlessvmorectl/internal/config"
 	"vlessvmorectl/internal/store"
 )
@@ -75,23 +78,69 @@ func (u *passkeyUser) WebAuthnCredentials() []webauthn.Credential { return u.cre
 // none of them is a secret, but none of them is the browser's business either, and a type
 // with nowhere to put a value cannot leak it. Same argument as serverEntry.
 type passkeyView struct {
-	ID         string    `json:"id"`
-	Label      string    `json:"label"`
-	Algorithm  string    `json:"algorithm"`
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Algorithm string `json:"algorithm"`
+
+	// The provider this credential lives in — Apple Passwords, Bitwarden — and the id that
+	// identified it. Their own fields rather than folded into Label, which is the operator's to
+	// write and to rename.
+	//
+	// Safe to hand out where the credential id is not: an authenticator id names a *provider*,
+	// never a device and never a person. Self-asserted all the same, so display only — see
+	// aaguidUUID.
+	//
+	// Logo is empty for the authenticators we hold no image for — most hardware keys — and the
+	// panel draws its own key glyph for those rather than asking for one that is not there.
+	// LogoDark is empty again whenever the provider's single logo suits both themes, which is
+	// most of them, and the panel falls back to Logo.
+	//
+	// Whole URLs rather than a filename or an id to assemble one from: the filenames carry a
+	// content hash, so the panel could not construct them anyway, and it has no business
+	// knowing the route they are served at.
+	Provider string `json:"provider,omitempty"`
+	AAGUID   string `json:"aaguid,omitempty"`
+	Logo     string `json:"logo,omitempty"`
+	LogoDark string `json:"logo_dark,omitempty"`
+
 	Synced     bool      `json:"synced"`
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at,omitzero"`
 }
 
 func viewPasskey(c store.PasskeyCredential) passkeyView {
+	id := aaguidUUID(c.AAGUID)
+	light, dark := aaguid.Logos(id)
 	return passkeyView{
 		ID:         c.ID,
 		Label:      c.Label,
 		Algorithm:  algorithmName(c.Algorithm),
+		Provider:   aaguid.Name(id),
+		AAGUID:     id,
+		Logo:       logoURL(light),
+		LogoDark:   logoURL(dark),
 		Synced:     c.BackupState,
 		CreatedAt:  c.CreatedAt,
 		LastUsedAt: c.LastUsedAt,
 	}
+}
+
+// aaguidUUID renders a stored AAGUID in the canonical hyphenated form the community
+// authenticator lists are keyed by, or "" when there is nothing to identify.
+//
+// All-zero is a real answer rather than a missing one: we ask for no attestation, which
+// leaves a client free to strip the identifier, and roaming security keys usually have it
+// stripped. That collapses to "" along with absent and malformed, so the browser has one
+// unknown case to draw instead of four.
+//
+// Never a trust signal. Nothing verifies this field — an authenticator asserts it about
+// itself — so it may not decide anything, only label it. Same rule as algorithmName.
+func aaguidUUID(encoded string) string {
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(raw) != 16 || bytes.Equal(raw, make([]byte, 16)) {
+		return ""
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:])
 }
 
 // algorithmName renders a COSE identifier for display. Never used to choose a verifier.
@@ -153,7 +202,13 @@ func toLibraryCredential(c store.PasskeyCredential) (webauthn.Credential, error)
 }
 
 // fromLibraryCredential projects a freshly verified credential onto what we keep.
-func fromLibraryCredential(c *webauthn.Credential, label string) store.PasskeyCredential {
+//
+// No name is asked for, and none is stored. At the only moment the operator could be asked —
+// before the ceremony — nobody yet knows what they would be naming, because an authenticator
+// identifies itself only once it has answered; and afterwards a dialog is a second step for a
+// value the panel can already show. The listing calls a credential after its provider, and the
+// pencil there is for anyone who wants better.
+func fromLibraryCredential(c *webauthn.Credential) store.PasskeyCredential {
 	transports := make([]string, 0, len(c.Transport))
 	for _, t := range c.Transport {
 		if t != "" {
@@ -162,7 +217,6 @@ func fromLibraryCredential(c *webauthn.Credential, label string) store.PasskeyCr
 	}
 	out := store.PasskeyCredential{
 		CredentialID:    base64.RawURLEncoding.EncodeToString(c.ID),
-		Label:           strings.TrimSpace(label),
 		PublicKey:       base64.RawURLEncoding.EncodeToString(c.PublicKey),
 		Algorithm:       int(c.Attestation.PublicKeyAlgorithm),
 		AttestationType: c.AttestationType,
@@ -175,6 +229,11 @@ func fromLibraryCredential(c *webauthn.Credential, label string) store.PasskeyCr
 	if len(c.Authenticator.AAGUID) > 0 {
 		out.AAGUID = base64.RawURLEncoding.EncodeToString(c.Authenticator.AAGUID)
 	}
+	// Label is left empty, which records the truth: nobody has named this. The panel calls it
+	// after its provider until somebody renames it, and computing that at render rather than
+	// freezing it here means a provider we learn the name of later is picked up by the
+	// credentials already enrolled.
+	//
 	// A COSE key always states its algorithm; the attestation object is where the library
 	// reports it. ES256 is what every platform authenticator produces, and recording 0
 	// would fail the store's validation for no good reason.
@@ -281,9 +340,10 @@ func (s *Server) beginRegisterPasskey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"state": state, "options": creation.Response})
 }
 
+// No label. Enrolment names a credential after the authenticator that answered, and renaming is
+// PATCH /api/passkeys/{id} — one way to set a name rather than two.
 type finishRegisterPasskeyRequest struct {
 	State string `json:"state"`
-	Label string `json:"label"`
 	// Raw, so DisallowUnknownFields still guards our envelope while leaving the browser's
 	// credential alone — it carries fields we do not enumerate, and browsers add more.
 	Credential json.RawMessage `json:"credential"`
@@ -331,7 +391,7 @@ func (s *Server) finishRegisterPasskey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stored, err := s.store.Passkeys.Add(admin.ID, pending.handle, fromLibraryCredential(cred, req.Label), s.now())
+	stored, err := s.store.Passkeys.Add(admin.ID, pending.handle, fromLibraryCredential(cred), s.now())
 	if err != nil {
 		writeStoreError(w, err)
 		return

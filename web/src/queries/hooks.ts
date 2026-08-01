@@ -402,10 +402,10 @@ export function useRegisterPasskey() {
   const callApi = useApiCall();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ label }: { label: string }) => {
+    mutationFn: async () => {
       const { state, options } = await callApi(postPasskeysRegisterBegin());
       const { credential, discoverable } = await createPasskey(options);
-      const passkey = await callApi(postPasskeysRegisterFinish(state, label, credential));
+      const passkey = await callApi(postPasskeysRegisterFinish(state, credential));
       return { passkey, discoverable };
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.passkeys }),

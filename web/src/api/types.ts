@@ -26,6 +26,19 @@ export interface Passkey {
   id: string;
   label: string;
   algorithm: string;
+  /**
+   * Which keychain this lives in — "Apple Passwords", "Bitwarden" — the authenticator id it was
+   * resolved from, and where to draw its logo from.
+   *
+   * All absent when the client withheld the id. `provider` alone is absent for an id the
+   * community list does not name, and `logo` alone is absent for one it names but ships no image
+   * for — most hardware keys, which get the panel's own key glyph. `logo_dark` appears only for
+   * the providers that ship a second image for dark mode; otherwise `logo` suits both.
+   */
+  provider?: string;
+  aaguid?: string;
+  logo?: string;
+  logo_dark?: string;
   /** In a keychain rather than tied to one device, from the authenticator's backup flag. */
   synced: boolean;
   created_at: string;
