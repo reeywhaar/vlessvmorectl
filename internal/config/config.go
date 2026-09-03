@@ -44,6 +44,10 @@ const (
 	// client-supplied, and this service takes nothing from them. See the comment above
 	// AccessPath in internal/api/subscribers.go, which is the same argument.
 	PasskeyOriginEnv = "VLESSVMORE_PASSKEY_ORIGIN"
+
+	// BackupURLEnv is where a backup agent takes an archive, e.g. http://backup:8080/backup.
+	// No default: it would be a guess at a hostname on a network this process cannot see.
+	BackupURLEnv = "VLESSVMORE_BACKUP_URL"
 )
 
 // Config is everything the process was told at startup.
@@ -55,6 +59,9 @@ type Config struct {
 	// passkeys on?" predicate in the program: the routes are not even registered without
 	// it, so the endpoints do not exist rather than existing and refusing.
 	Passkey *Passkey
+
+	// BackupURL is where an archive is posted, or empty for no backups at all.
+	BackupURL string
 
 	// byOrigin is the proxy's allowlist: an exact map from a normalised
 	// "scheme://host" to the server it belongs to. A map rather than a scan over
@@ -84,11 +91,17 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 
+	backupURL, err := ParseBackupURL(getenv(BackupURLEnv))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
-		Servers:  servers,
-		LogLevel: level,
-		Passkey:  passkey,
-		byOrigin: make(map[string]*Server, len(servers)),
+		Servers:   servers,
+		LogLevel:  level,
+		Passkey:   passkey,
+		BackupURL: backupURL,
+		byOrigin:  make(map[string]*Server, len(servers)),
 	}
 	for _, s := range servers {
 		cfg.byOrigin[s.Origin] = s

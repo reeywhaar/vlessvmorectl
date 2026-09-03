@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"vlessvmorectl/internal/api"
+	"vlessvmorectl/internal/backup"
 	"vlessvmorectl/internal/config"
 	"vlessvmorectl/internal/session"
 	"vlessvmorectl/internal/store"
@@ -47,7 +48,9 @@ Configuration is entirely environment:
     VLESSVMORE_LOG_LEVEL      debug, info (default), warn or error
     VLESSVMORE_PASSKEY_ORIGIN the address operators open in a browser, e.g.
                               https://panel.example.com. Enables passkey sign-in;
-                              unset disables it.`,
+                              unset disables it.
+    VLESSVMORE_BACKUP_URL     where a backup agent takes an archive, e.g.
+                              http://backup:8080/backup. Unset backs nothing up.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -122,6 +125,10 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 
 	warnAboutConfiguration(log, cfg, st)
 
+	// Copies of the data directory, whenever it has changed. Off unless an address was named;
+	// see internal/backup for why this pushes rather than being pulled from.
+	go (&backup.Pusher{Dir: st.Dir(), URL: cfg.BackupURL, Log: log}).Run(ctx)
+
 	httpSrv := &http.Server{
 		Addr:    config.ListenAddr,
 		Handler: srv.Handler(),
@@ -144,6 +151,7 @@ func runServe(cmd *cobra.Command, dataDir string) error {
 		// Disabled is a legitimate steady state, so this is a fact in the startup line
 		// rather than a warning. See warnAboutConfiguration for the case that is a trap.
 		"passkeys", cfg.Passkey != nil,
+		"backups", cfg.BackupURL != "",
 		// Counts only. Never the URLs at info level, and never the tokens at any level.
 		"servers", len(cfg.Servers))
 
