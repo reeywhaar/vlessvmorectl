@@ -39,7 +39,9 @@ THEME=dark docs/screenshots/capture.sh    # default light
 ```
 
 720 CSS pixels at `deviceScaleFactor: 2` gives 1440-pixel-wide files that stay crisp on a
-retina display and still sit sensibly two-to-a-row in a README. Height is measured from the
+retina display and still sit sensibly two-to-a-row in a README. Each PNG says its density,
+72 dpi times the scale, as a macOS screenshot does — a `pHYs` chunk and an EXIF block — so an
+image viewer opens it at 720 points rather than at double size. Height is measured from the
 content, so none of them carry a screenful of empty page.
 
 **Do not drop below 640** without meaning to. That is the panel's `sm` breakpoint: under it
