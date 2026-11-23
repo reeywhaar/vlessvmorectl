@@ -26,14 +26,9 @@ const (
 	limitWindow     = time.Minute
 )
 
-// The remote address is deliberately not a limiter key.
-//
-// Behind caddy-docker-proxy every request arrives from the same container IP, so
-// per-IP limiting would be one shared bucket — i.e. the global limit, but pretending
-// to be something finer. Using X-Forwarded-For instead would be worse than useless:
-// it is attacker-controlled, so a hostile client mints a fresh bucket per request and
-// the limit disappears entirely, while an honest operator behind the same proxy keeps
-// theirs. Username plus a global cap is the honest pair.
+// The caller's address is deliberately not a limiter key. Banning addresses is fail2ban's
+// job, from the line refused logs; a bucket per address here would be a map anyone with an
+// IPv6 /64 fills at will. Username plus a global cap is the honest pair.
 type loginLimiter struct {
 	mu sync.Mutex
 

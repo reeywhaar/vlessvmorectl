@@ -413,6 +413,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	admin, err := s.store.Admins.Verify(username, req.Password)
 	if err != nil {
 		s.limiter.fail(username, now)
+		s.refused(r, "sign-in")
 		// One message for both halves. Saying which was wrong turns this into a
 		// username oracle that no rate limit can fully close.
 		writeError(w, http.StatusUnauthorized, "invalid username or password")

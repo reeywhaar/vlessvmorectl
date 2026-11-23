@@ -131,6 +131,7 @@ func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request, password
 	}
 	if _, err := s.store.Admins.Verify(admin.Username, password); err != nil {
 		s.limiter.fail(admin.ID, now)
+		s.refused(r, "current-password")
 		writeError(w, http.StatusForbidden, "that is not your current password")
 		return nil, false
 	}

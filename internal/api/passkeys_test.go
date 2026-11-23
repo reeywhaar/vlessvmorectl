@@ -465,6 +465,9 @@ func TestPasskeyLoginRejections(t *testing.T) {
 			if cookieFrom(rec) != nil {
 				t.Error("a refused sign-in issued a cookie")
 			}
+			if got := fail2banHits(h.logs.String()); len(got) != 1 || got[0] != "192.0.2.1 passkey" {
+				t.Errorf("fail2ban would ban %v, from:\n%s", got, h.logs.String())
+			}
 		})
 	}
 }

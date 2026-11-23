@@ -149,7 +149,7 @@ func (s *Server) accessHandler(w http.ResponseWriter, r *http.Request) {
 		// separated by orders of magnitude no padding could hide — and observing that
 		// separation requires already holding a 160-bit token. This package's doc
 		// already argues that this service refuses honestly rather than performatively.
-		s.log.Warn("share link not recognised", "token_fp", store.TokenFingerprint(token))
+		s.refused(r, "share-link", "token_fp", store.TokenFingerprint(token))
 		writeError(w, http.StatusNotFound, accessNotValid)
 		return
 	}

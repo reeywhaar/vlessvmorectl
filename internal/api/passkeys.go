@@ -535,7 +535,7 @@ func (s *Server) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 
 	_, cred, err := s.webauthn.ValidatePasskeyLogin(handler, pending.session, parsed)
 	if err != nil {
-		s.log.Warn("a passkey sign-in was refused", "error", err)
+		s.refused(r, "passkey", "error", err)
 		writeError(w, http.StatusUnauthorized, passkeyLoginRefusal)
 		return
 	}

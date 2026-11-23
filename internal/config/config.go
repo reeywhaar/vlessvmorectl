@@ -48,6 +48,10 @@ const (
 	// BackupURLEnv is where a backup agent takes an archive, e.g. http://backup:8080/backup.
 	// No default: it would be a guess at a hostname on a network this process cannot see.
 	BackupURLEnv = "VLESSVMORE_BACKUP_URL"
+
+	// TrustedProxiesEnv is whose X-Forwarded-For is believed: addresses and ranges, "private"
+	// for the private and loopback ranges, or "none". Unset, "private".
+	TrustedProxiesEnv = "VLESSVMORE_TRUSTED_PROXIES"
 )
 
 // Config is everything the process was told at startup.
@@ -62,6 +66,9 @@ type Config struct {
 
 	// BackupURL is where an archive is posted, or empty for no backups at all.
 	BackupURL string
+
+	// TrustedProxies are the peers whose X-Forwarded-For says who the caller is. Empty, nobody's.
+	TrustedProxies Proxies
 
 	// byOrigin is the proxy's allowlist: an exact map from a normalised
 	// "scheme://host" to the server it belongs to. A map rather than a scan over
@@ -96,12 +103,18 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 
+	proxies, err := ParseProxies(getenv(TrustedProxiesEnv))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
-		Servers:   servers,
-		LogLevel:  level,
-		Passkey:   passkey,
-		BackupURL: backupURL,
-		byOrigin:  make(map[string]*Server, len(servers)),
+		Servers:        servers,
+		LogLevel:       level,
+		Passkey:        passkey,
+		BackupURL:      backupURL,
+		TrustedProxies: proxies,
+		byOrigin:       make(map[string]*Server, len(servers)),
 	}
 	for _, s := range servers {
 		cfg.byOrigin[s.Origin] = s

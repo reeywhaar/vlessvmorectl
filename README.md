@@ -44,6 +44,7 @@ Real captures of the panel; only the data is invented. Regenerate them with
 - [Passkeys](#passkeys) — signing in without a password, and the one variable that enables it
 - [Subscribers, and the page you hand them](#subscribers-and-the-page-you-hand-them) — one link per person, and what that link is worth
 - [Backups](#backups) — the panel posts its own archives to a backup agent
+- [fail2ban](#fail2ban) — one log line per refused password, passkey or share link
 - [Things worth knowing](#things-worth-knowing) — silent reload failures, quota counters, capability URLs
 - [Security](#security) — what keeps `/api/proxy` from being a liability
 - [Development](#development) — tests, and where the 7 MB goes
@@ -173,6 +174,7 @@ needs to be told is which nodes it manages.
 | `VLESSVMORE_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error` |
 | `VLESSVMORE_PASSKEY_ORIGIN` | the address operators open in a browser, e.g. `https://panel.example.com`. Enables [passkey sign-in](#passkeys); unset disables it |
 | `VLESSVMORE_BACKUP_URL` | where a backup agent takes an archive, e.g. `http://backup:8080/backup`. Enables [backups](#backups); unset disables them |
+| `VLESSVMORE_TRUSTED_PROXIES` | whose `X-Forwarded-For` names the caller for [fail2ban](#fail2ban): addresses, ranges, `private` (default) or `none` |
 | `VLESSVMORECTL_DATA_DIR` | overrides `/var/lib/vlessvmorectl` |
 
 ```
@@ -457,6 +459,45 @@ an archive nobody can open.
 tokens in the clear, each a capability granting sight of that subscriber's accounts. No node
 bearer token is in there at all. Hence `BACKUP_PASSWORD` when the remote is not yours.
 
+## fail2ban
+
+The panel bans nobody itself. Every refused credential is one line with the caller's address:
+
+```
+time=… level=WARN msg="password refused" ip=203.0.113.7 via=sign-in
+```
+
+`via` is `sign-in`, `passkey`, `current-password`, or `share-link` for a link that is unknown or
+switched off, since a share token is a password too. The line never carries a username or a
+password.
+
+```ini
+# filter.d/vlessvmorectl.local
+[Definition]
+failregex = ^time=\S* level=WARN msg="password refused" ip=<ADDR>
+ignoreregex =
+```
+
+```ini
+# jail.d/vlessvmorectl.local
+[vlessvmorectl]
+enabled   = true
+filter    = vlessvmorectl
+logpath   = /path/to/vlessvmorectl.log
+banaction = iptables-allports[chain=DOCKER-USER]
+findtime  = 600
+bantime   = 1d
+maxretry  = 5
+```
+
+`logpath` is the container's log as plain lines, not Docker's JSON-wrapped `json-file` log.
+`DOCKER-USER` because traffic to a published container port never passes `INPUT`.
+
+The address is read from `X-Forwarded-For`, and only when the connection comes from a trusted
+proxy, right to left up to the first hop that is not one. `VLESSVMORE_TRUSTED_PROXIES` names
+them, `private` by default, which is all caddy-docker-proxy needs. A CDN in front of Caddy needs
+its ranges added here and in Caddy's `trusted_proxies`, and there an iptables ban does nothing:
+the CDN connects, not the caller.
 
 ## Things worth knowing
 
